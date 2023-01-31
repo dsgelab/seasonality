@@ -6,29 +6,38 @@ library(ggplot2)
 library(patchwork)
 library(DT)
 library(mgcv)
+library(readr)
 source('utils.R')
 
-heritability_dat <- read.table('data/finngen_R10_finngen_R10_analysis_data_ldsc_data_finngen_R10_FIN.ldsc.heritability.tsv',header=T) %>%
-  as_tibble()
+heritability_dat <- read_tsv('data/finngen_R10_finngen_R10_analysis_data_ldsc_data_finngen_R10_FIN.ldsc.heritability.tsv') %>%
+                    filter(H2>0.01)
+GWAS_info_dat <- read_tsv('data/finngen_R10_finngen_R10_analysis_data_finngen_R10_pheno_n.tsv') %>%
+                 filter(num_gw_significant>1)
+seasonal_splines_FinRegistry <- read_tsv('data/FINREGISTRY_seasonal_splines.txt') %>%
+                                group_by(month) %>%
+                                summarise(avg_seasonal_val=median(seasonal_val))
 
-monthly_counts_FinRegistry  <- read.table('data/FINREGISTRY_endpoints_monthly_count_green.txt',header=T) %>%
-  as_tibble() %>%
-  filter_monthly_counts(.,heritability_dat)
+monthly_counts_FinRegistry  <- read_tsv('data/FINREGISTRY_endpoints_monthly_count_green.txt') %>%
+                               filter_monthly_counts(.,GWAS_info_dat)
 
 cols_to_format <- c('pval','log10_pval','val_peak','val_trough','ptr','af','var_fraction','dispersion')
 
 seasonal_summary_FinnGen <- read.table('data/FINNGEN_seasonal_summary.txt',header=T) %>%
-  as_tibble() %>%
-  rename(log10_pval=log_pval) %>%
-  mutate(log10_pval=log10_pval/log(10)) %>%
-  inner_join(select(heritability_dat,ENDPOINT=PHENO,H2),by='ENDPOINT') %>%
-  filter(H2>0.01) %>%
-  mutate(across(all_of(cols_to_format), format,digits=2))
+                            as_tibble() %>%
+                            rename(log10_pval=log_pval) %>%
+                            mutate(log10_pval=log10_pval/log(10)) %>%
+                            inner_join(select(GWAS_info_dat,ENDPOINT=phenocode,num_gw_significant),by='ENDPOINT') %>%
+                            mutate(across(all_of(cols_to_format), format,digits=3))
 
-seasonal_summary_FinRegistry <- read.table('data/FINREGISTRY_seasonal_summary.txt',header=T) %>%
-                                as_tibble() %>%
-                                inner_join(select(seasonal_summary_FinnGen,ENDPOINT,H2),by='ENDPOINT')%>%
-                                mutate(across(all_of(cols_to_format), format,digits=2))
+seasonal_summary_FinRegistry <- read_tsv('data/FINREGISTRY_seasonal_summary.txt') %>%
+                                inner_join(select(seasonal_summary_FinnGen,ENDPOINT,num_gw_significant),by='ENDPOINT')%>%
+                                mutate(across(all_of(cols_to_format), format,digits=3))
+
+seasonal_summary_FinRegistry_adj <- read_tsv('data/FINREGISTRY_seasonal_summary_adj.txt') %>%
+                                    inner_join(select(seasonal_summary_FinnGen,ENDPOINT,num_gw_significant),by='ENDPOINT')%>%
+                                    mutate(across(all_of(cols_to_format), format,digits=3))
+
+
 
 # Define UI for application that draws a histogram
 ui <- fluidPage(
@@ -42,7 +51,7 @@ ui <- fluidPage(
         uiOutput('search_endpoints')
       ),
       column(8,
-        #checkboxGroupInput(inputId="adjustments",label="Adjustments",choices=c('Hospital usage','Mean temperature'))
+          checkboxGroupInput(inputId="adjustment",label='Adjustments',choices=c('Average seasonal pattern'='avg'))
       )
   ),
   hr(),
@@ -78,22 +87,27 @@ server <- function(input, output) {
   fit_gam <- reactive({
     if(nchar(input$endpoint)!=0){
       dat_endpoint <- filter(monthly_counts_FinRegistry,ENDPOINT==input$endpoint)
-      mod_list <- run_seasonality_gam(dat_endpoint)
-      return(list(dat_endpoint=dat_endpoint,mod_list=mod_list))
+      seasonal_spline_avg <- NULL
+      if('avg' %in% input$adjustment){
+        seasonal_spline_avg <- seasonal_splines_FinRegistry
+      }
+      mod_list <- run_seasonality_gam(dat_endpoint,seasonal_spline_avg)
+      return(list(dat_endpoint=dat_endpoint,mod_list=mod_list,seasonal_spline_avg=seasonal_spline_avg))
     }
   })
 
   output$plot_FinRegistry <- renderPlot({
     if(nchar(input$endpoint)!=0){
       compare_gam_fits(fit_gam()$mod_list,fit_gam()$dat_endpoint,input$endpoint) /
-      (trend_plot(fit_gam()$mod_list) +
-      seasonality_plot(fit_gam()$mod_list)) +
+      (trend_plot(fit_gam()$dat_endpoint,fit_gam()$mod_list,fit_gam()$seasonal_spline_avg) +
+      seasonality_plot(fit_gam()$dat_endpoint,fit_gam()$mod_list,fit_gam()$seasonal_spline_avg)) +
       plot_layout(widths = c(2,1,1), nrow=2)
     }
   })
 
   output$FinRegistry_table <- renderDataTable({
-    datatable(seasonal_summary_FinRegistry,
+    datatable(#if(!is.null(input$adjustment)) seasonal_summary_FinRegistry_adj else seasonal_summary_FinRegistry,
+              seasonal_summary_FinRegistry,
               selection = list(mode='single',target = 'cell',selectable=cbind(1:nrow(seasonal_summary_FinRegistry),1)),
               options = list(autoWidth = TRUE,selection = 'none'))
   })

@@ -1,22 +1,47 @@
-run_seasonality_gam <- function(dat){
-  k_trend <- 11
+get_seasonal_spline_adj <- function(seasonal_spline_avg,months){
+  approx(x=seasonal_spline_avg$month,
+         y=seasonal_spline_avg$avg_seasonal_val,
+         xout=months)$y
+}
+
+get_grid <- function(dat,type,seasonal_spline_avg=NULL){
+  if(type=='seasonal'){
+   grid_dat <-data.frame(EVENT_YEAR=1998, EVENT_MONTH=seq(0.5,12.5,by=0.1))
+  }else if(type=='trend'){
+   grid_dat <- data.frame(EVENT_YEAR=seq(1998,2019,by=0.1),EVENT_MONTH=1)
+  }else{
+    stop('Type not recognized')
+  }
+  grid_dat$nr_days <- 30
+  if(!is.null(seasonal_spline_avg)){
+    grid_dat <- mutate(grid_dat,avg_seasonal_val=get_seasonal_spline_adj(seasonal_spline_avg,EVENT_MONTH))
+  }
+  return(grid_dat)
+}
+
+run_seasonality_gam <- function(dat,seasonal_spline_avg=NULL){
+  k_trend <- 6
   k_seasonal <- 6
   dat$nr_days <- 30
   f_null <- 'COUNT ~ offset(log(nr_days)) + s(EVENT_YEAR, k=k_trend, bs="ps")'
+  if(!is.null(seasonal_spline_avg)){
+    dat$avg_seasonal_val <- get_seasonal_spline_adj(seasonal_spline_avg,dat$EVENT_MONTH)
+    f_null <- paste(f_null,'avg_seasonal_val',sep='+')
+  }
   f_seasonal <- paste(f_null,'s(EVENT_MONTH, k=k_seasonal, bs="cp")',sep='+')
   mod_null <- gam(as.formula(f_null), family=quasipoisson(), data=dat, scale=-1)
-  mod_seasonal <- gam(as.formula(f_seasonal), family=quasipoisson(), data=dat, scale=-1)
+  mod_seasonal <- gam(as.formula(f_seasonal), family=quasipoisson(), data=dat, knots=list(EVENT_MONTH = c(0.5, 12.5)), scale=-1)
   return(list(seasonal=mod_seasonal, null=mod_null))
 }
 
-summarise_seasonality <- function(dat){
-  mod_list <- run_seasonality_gam(dat)
+summarise_seasonality <- function(dat,seasonal_spline_avg=NULL){
+  mod_list <- run_seasonality_gam(dat,seasonal_spline_avg)
   LR_test_stat <- anova(mod_list$null,mod_list$seasonal)
   log_pval <- pchisq(LR_test_stat$Deviance[2], df=LR_test_stat$Df[2], lower.tail=F, log.p=T)
   seasonal_component_monthly <- predict(mod_list$seasonal,
-                                        newdata=data.frame(nr_days=30, EVENT_YEAR=1998, EVENT_MONTH=seq_len(12)),
-                                        type='terms')[, 2]
-  seasonal_component_data <- predict(mod_list$seasonal, type='terms')[, 2]
+                                        newdata=filter(get_grid(dat,type='seasonal',seasonal_spline_avg),EVENT_MONTH %in% seq_len(12)),
+                                        type='terms')[, 's(EVENT_MONTH)']
+  seasonal_component_data <- predict(mod_list$seasonal, type='terms')[, 's(EVENT_MONTH)']
   val_peak <- exp(max(seasonal_component_monthly))
   val_trough <- exp(min(seasonal_component_monthly))
   month_peak <- which.max(seasonal_component_monthly)
@@ -42,6 +67,13 @@ summarise_seasonality <- function(dat){
          dispersion=mod_list$seasonal$scale)
 }
 
+extract_seasonal_spline <- function(dat){
+  mod_list <- run_seasonality_gam(dat)
+  months_vec <- seq(0.5,12.5,by=0.1)
+  seasonal_pred <- predict(mod_list$seasonal,newdata=data.frame(nr_days=30,EVENT_YEAR=1998,EVENT_MONTH=months_vec),type='terms')[,'s(EVENT_MONTH)']
+  return(tibble(month=months_vec,seasonal_val=seasonal_pred))
+}
+
 compare_gam_fits <- function(mod_list,monthly_counts,endpoint){
   years <- unique(monthly_counts$EVENT_YEAR)
   season_dat <- bind_rows(list(summer=tibble(start=ym(paste0(years,'-',4)),
@@ -51,13 +83,15 @@ compare_gam_fits <- function(mod_list,monthly_counts,endpoint){
   season_dat <- bind_rows(season_dat,tibble(season='winter',
                                             start=ym(paste0(years[1],'-',1)),
                                             end=ym(paste0(years[1],'-',4))))
+  monthly_counts$null_pred <-predict(mod_list$null)
+  monthly_counts$seasonal_pred <-predict(mod_list$seasonal)
   ggplot(mutate(monthly_counts,month=1:n())) +
   geom_point(aes(x=EVENT_DATE,
                  y=COUNT)) +
   geom_line(aes(x=EVENT_DATE,
-                y=mod_list$seasonal$fitted.values)) +
+                y=exp(seasonal_pred))) +
     geom_line(aes(x=EVENT_DATE,
-                  y=mod_list$null$fitted.values),
+                  y=exp(null_pred)),
               col='red') +
   geom_rect(data=season_dat,aes(xmin=start,
                                 xmax=end,
@@ -77,13 +111,18 @@ compare_gam_fits <- function(mod_list,monthly_counts,endpoint){
         axis.text.y=element_text(size=14))
 }
 
-trend_plot <- function(mod_list){
+trend_plot <- function(dat,mod_list,seasonal_spline_avg){
   years_vec <- seq(1998,2019,by=0.1)
-  trend_vec <- predict(mod_list$seasonal,newdata=data.frame(nr_days=30,EVENT_YEAR=years_vec,EVENT_MONTH=1),type='terms')[,1]
-  tibble(year=years_vec,trend=trend_vec) %>%
-  ggplot(aes(x=year,
-             y=trend)) +
-  geom_line() +
+  trend_pred <- predict(mod_list$seasonal,newdata=get_grid(dat,type='trend',seasonal_spline_avg),type='terms',se.fit=T)
+  trend_pred_dat <- tibble(year=years_vec,
+                           est=trend_pred$fit[,'s(EVENT_YEAR)'],
+                           lower=est - 1.96*trend_pred$se.fit[,'s(EVENT_YEAR)'],
+                           upper=est + 1.96*trend_pred$se.fit[,'s(EVENT_YEAR)'])
+  ggplot(trend_pred_dat) +
+  geom_line(aes(x=year,
+                y=est)) +
+  geom_ribbon(aes(x=year,ymin=lower,ymax=upper),alpha=0.3,fill='blue') +
+  geom_hline(yintercept=0,linetype='dashed',color='red') +
   scale_x_continuous(limits = c(1998,2020),expand=c(0.03,0)) +
   xlab('Year') +
   ylab('Smooth term') +
@@ -95,13 +134,18 @@ trend_plot <- function(mod_list){
         axis.text.y=element_text(size=14))
 }
 
-seasonality_plot <- function(mod_list){
-  months_vec <- seq(1,12,by=0.1)
-  seasonal_vec <- predict(mod_list$seasonal,newdata=data.frame(nr_days=30,EVENT_YEAR=1998,EVENT_MONTH=months_vec),type='terms')[,2]
-  tibble(month=months_vec,seasonal=seasonal_vec) %>%
-  ggplot(aes(x=months_vec,
-             y=seasonal)) +
-  geom_line() +
+seasonality_plot <- function(dat,mod_list,seasonal_spline_avg){
+  months_vec <- seq(0.5,12.5,by=0.1)
+  seasonal_pred <- predict(mod_list$seasonal,newdata=get_grid(dat,type='seasonal',seasonal_spline_avg),type='terms',se.fit=T)
+  seasonal_pred_dat <- tibble(month=months_vec,
+                              est=seasonal_pred$fit[,'s(EVENT_MONTH)'],
+                              lower=est - 1.96*seasonal_pred$se.fit[,'s(EVENT_MONTH)'],
+                              upper=est + 1.96*seasonal_pred$se.fit[,'s(EVENT_MONTH)'])
+  ggplot(seasonal_pred_dat) +
+  geom_line(aes(x=month,
+                y=est)) +
+  geom_ribbon(aes(x=month,ymin=lower,ymax=upper),alpha=0.3,fill='blue') +
+  geom_hline(yintercept=0,linetype='dashed',color='red') +
   scale_x_continuous(breaks=seq_len(12)) +
   xlab('Month number') +
   ylab('Smooth term') +
@@ -114,10 +158,9 @@ seasonality_plot <- function(mod_list){
 }
 
 
-filter_monthly_counts <- function(monthly_counts,heritability_dat){
+filter_monthly_counts <- function(monthly_counts,GWAS_info_dat){
   monthly_counts_filtered <- filter(monthly_counts,EVENT_YEAR>=1998 & EVENT_YEAR<=2019) %>%
-                             inner_join(select(heritability_dat,ENDPOINT=PHENO,H2),by='ENDPOINT') %>%
-                             filter(H2>0.01)
+                             inner_join(select(GWAS_info_dat,ENDPOINT=phenocode,num_gw_significant),by='ENDPOINT')
   month_year_endpoint_template <- expand_grid(ENDPOINT=unique(monthly_counts_filtered$ENDPOINT),
                                               EVENT_YEAR=seq(min(monthly_counts_filtered$EVENT_YEAR),
                                                              max(monthly_counts_filtered$EVENT_YEAR)),
@@ -134,8 +177,26 @@ filter_monthly_counts <- function(monthly_counts,heritability_dat){
 
 # t = Sys.time()
 # seasonal_summary_FinRegistry = group_by(monthly_counts_FinRegistry,ENDPOINT) %>%
-#                                group_modify(~summarise_seasonality(.x)) %>%
+#                                group_modify(~summarise_seasonality(.x,seasonal_spline_avg)) %>%
 #                                arrange(log10_pval)
+# Sys.time()-t
+# write.table(seasonal_summary_FinRegistry,file='data/FINREGISTRY_seasonal_summary_adj.txt',sep='\t',row.names=F,quote=F)
+
+# t = Sys.time()
+# seasonal_splines <- group_by(monthly_counts_FinRegistry,ENDPOINT) %>%
+#                     group_modify(~extract_seasonal_spline(.x))
+# write.table(seasonal_splines,file='data/FINREGISTRY_seasonal_splines.txt',sep='\t',row.names=F,quote=F)
+#
+#
+# group_by(seasonal_splines,month) %>%
+# summarise(avg_seasonal_val=median(seasonal_val)) %>%
+# ggplot() +
+# geom_line(aes(month,avg_seasonal_val))
+#
+#
+# seasonal_splines %>%
+# ggplot() +
+# geom_line(aes(month,seasonal_val,col=ENDPOINT))
 # Sys.time()-t
 # write.table(seasonal_summary_FinRegistry,file='data/FINREGISTRY_seasonal_summary.txt',sep='\t',row.names=F,quote=F)
 
