@@ -1,3 +1,9 @@
+library(dplyr)
+library(tidyr)
+library(lubridate)
+library(ggplot2)
+library(mgcv)
+
 get_seasonal_spline_adj <- function(seasonal_spline_avg,months){
   approx(x=seasonal_spline_avg$month,
          y=seasonal_spline_avg$avg_seasonal_val,
@@ -29,8 +35,8 @@ run_seasonality_gam <- function(dat,seasonal_spline_avg=NULL){
     f_null <- paste(f_null,'avg_seasonal_val',sep='+')
   }
   f_seasonal <- paste(f_null,'s(EVENT_MONTH, k=k_seasonal, bs="cp")',sep='+')
-  mod_null <- gam(as.formula(f_null), family=quasipoisson(), data=dat, scale=-1)
   mod_seasonal <- gam(as.formula(f_seasonal), family=quasipoisson(), data=dat, knots=list(EVENT_MONTH = c(0.5, 12.5)), scale=-1)
+  mod_null <- gam(as.formula(f_null), sp=mod_seasonal$sp['s(EVENT_YEAR)'],family=quasipoisson(), data=dat, scale=-1)
   return(list(seasonal=mod_seasonal, null=mod_null))
 }
 
@@ -159,8 +165,7 @@ seasonality_plot <- function(dat,mod_list,seasonal_spline_avg){
 
 
 filter_monthly_counts <- function(monthly_counts,GWAS_info_dat){
-  monthly_counts_filtered <- filter(monthly_counts,EVENT_YEAR>=1998 & EVENT_YEAR<=2019) %>%
-                             inner_join(select(GWAS_info_dat,ENDPOINT=phenocode,num_gw_significant),by='ENDPOINT')
+  monthly_counts_filtered <- filter(monthly_counts,EVENT_YEAR>=1998 & EVENT_YEAR<=2019)
   month_year_endpoint_template <- expand_grid(ENDPOINT=unique(monthly_counts_filtered$ENDPOINT),
                                               EVENT_YEAR=seq(min(monthly_counts_filtered$EVENT_YEAR),
                                                              max(monthly_counts_filtered$EVENT_YEAR)),
@@ -170,33 +175,7 @@ filter_monthly_counts <- function(monthly_counts,GWAS_info_dat){
                                        by=c('ENDPOINT','EVENT_YEAR','EVENT_MONTH')) %>%
                               mutate(COUNT=ifelse(is.na(COUNT),0L,COUNT),
                                      EVENT_DATE=ym(paste0(EVENT_YEAR,'-',EVENT_MONTH))) %>%
+                              inner_join(select(GWAS_info_dat,ENDPOINT=phenocode,num_gw_significant),by='ENDPOINT') %>%
                               arrange(ENDPOINT,EVENT_YEAR,EVENT_MONTH)
   return(monthly_counts_filtered)
 }
-
-
-# t = Sys.time()
-# seasonal_summary_FinRegistry = group_by(monthly_counts_FinRegistry,ENDPOINT) %>%
-#                                group_modify(~summarise_seasonality(.x,seasonal_spline_avg)) %>%
-#                                arrange(log10_pval)
-# Sys.time()-t
-# write.table(seasonal_summary_FinRegistry,file='data/FINREGISTRY_seasonal_summary_adj.txt',sep='\t',row.names=F,quote=F)
-
-# t = Sys.time()
-# seasonal_splines <- group_by(monthly_counts_FinRegistry,ENDPOINT) %>%
-#                     group_modify(~extract_seasonal_spline(.x))
-# write.table(seasonal_splines,file='data/FINREGISTRY_seasonal_splines.txt',sep='\t',row.names=F,quote=F)
-#
-#
-# group_by(seasonal_splines,month) %>%
-# summarise(avg_seasonal_val=median(seasonal_val)) %>%
-# ggplot() +
-# geom_line(aes(month,avg_seasonal_val))
-#
-#
-# seasonal_splines %>%
-# ggplot() +
-# geom_line(aes(month,seasonal_val,col=ENDPOINT))
-# Sys.time()-t
-# write.table(seasonal_summary_FinRegistry,file='data/FINREGISTRY_seasonal_summary.txt',sep='\t',row.names=F,quote=F)
-

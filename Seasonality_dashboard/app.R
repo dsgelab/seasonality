@@ -1,21 +1,12 @@
 library(shiny)
-library(dplyr)
-library(tidyr)
-library(lubridate)
-library(ggplot2)
 library(patchwork)
-library(DT)
-library(mgcv)
 library(readr)
+library(DT)
+library(knitr)
 source('utils.R')
 
-heritability_dat <- read_tsv('data/finngen_R10_finngen_R10_analysis_data_ldsc_data_finngen_R10_FIN.ldsc.heritability.tsv') %>%
-                    filter(H2>0.01)
 GWAS_info_dat <- read_tsv('data/finngen_R10_finngen_R10_analysis_data_finngen_R10_pheno_n.tsv') %>%
                  filter(num_gw_significant>1)
-seasonal_splines_FinRegistry <- read_tsv('data/FINREGISTRY_seasonal_splines.txt') %>%
-                                group_by(month) %>%
-                                summarise(avg_seasonal_val=median(seasonal_val))
 
 monthly_counts_FinRegistry  <- read_tsv('data/FINREGISTRY_endpoints_monthly_count_green.txt') %>%
                                filter_monthly_counts(.,GWAS_info_dat)
@@ -31,11 +22,19 @@ seasonal_summary_FinnGen <- read.table('data/FINNGEN_seasonal_summary.txt',heade
 
 seasonal_summary_FinRegistry <- read_tsv('data/FINREGISTRY_seasonal_summary.txt') %>%
                                 inner_join(select(seasonal_summary_FinnGen,ENDPOINT,num_gw_significant),by='ENDPOINT')%>%
-                                mutate(across(all_of(cols_to_format), format,digits=3))
+                                mutate(across(all_of(cols_to_format), format,digits=3)) %>%
+                                mutate(across(all_of(c('af','var_fraction')),as.numeric)) %>%
+                                select(-pval,-log10_pval)
 
 seasonal_summary_FinRegistry_adj <- read_tsv('data/FINREGISTRY_seasonal_summary_adj.txt') %>%
                                     inner_join(select(seasonal_summary_FinnGen,ENDPOINT,num_gw_significant),by='ENDPOINT')%>%
-                                    mutate(across(all_of(cols_to_format), format,digits=3))
+                                    mutate(across(all_of(cols_to_format), format,digits=3)) %>%
+                                    select(-pval,-log10_pval)
+
+seasonal_splines_FinRegistry <- read_tsv('data/FINREGISTRY_seasonal_splines.txt') %>%
+                                inner_join(select(seasonal_summary_FinnGen,ENDPOINT),by='ENDPOINT') %>%
+                                group_by(month) %>%
+                                summarise(avg_seasonal_val=median(seasonal_val))
 
 
 
@@ -46,31 +45,39 @@ ui <- fluidPage(
   titlePanel("Seasonality dashboard"),
 
   # Sidebar with a slider input for number of bins
-  fluidRow(
-      column(4,
-        uiOutput('search_endpoints')
-      ),
-      column(8,
-          checkboxGroupInput(inputId="adjustment",label='Adjustments',choices=c('Average seasonal pattern'='avg'))
-      )
-  ),
-  hr(),
-    # Show a plot of the generated distribution
-  fluidRow(
-       column(6,
-          plotOutput("plot_FinRegistry",height=600)
-       ),
-       column(6,
-          tabsetPanel(
-            tabPanel("Seasonal summary - FinRegistry",
-                     dataTableOutput("FinRegistry_table")
-            ),
-            tabPanel("Seasonal summary - FINNGEN",
-                     dataTableOutput("FinnGen_table")
-            )
+  tabsetPanel(
+    tabPanel('Visualization',
+      fluidRow(
+          column(4,
+            uiOutput('search_endpoints')
+          ),
+          column(8,
+              checkboxGroupInput(inputId="adjustment",label='Adjustments',choices=c('Median seasonal pattern'='avg'))
           )
-       )
+      ),
+      hr(),
+        # Show a plot of the generated distribution
+      fluidRow(
+           column(6,
+              plotOutput("plot_FinRegistry",height=600)
+           ),
+           column(6,
+                dataTableOutput("FinRegistry_table")
+           )
+        ),
+      ),
+      tabPanel('Background',
+        uiOutput('background')
+      )
     ),
+  #To ensure Rmd file fills up the screen
+  tags$head(tags$style(HTML("
+                               body {
+                                  width: 100% !important;
+                                  max-width: 100% !important;
+                               }
+
+                               ")))
   )
 
 # Define server logic required to draw a histogram
@@ -112,11 +119,11 @@ server <- function(input, output) {
               options = list(autoWidth = TRUE,selection = 'none'))
   })
 
-  output$FinnGen_table <- renderDataTable({
-    datatable(seasonal_summary_FinnGen,
-              selection = list(mode='single',target = 'cell',selectable=cbind(1:nrow(seasonal_summary_FinnGen),1)),
-              options = list(autoWidth = TRUE,selection = 'none'))
-  })
+  # output$FinnGen_table <- renderDataTable({
+  #   datatable(seasonal_summary_FinnGen,
+  #             selection = list(mode='single',target = 'cell',selectable=cbind(1:nrow(seasonal_summary_FinnGen),1)),
+  #             options = list(autoWidth = TRUE,selection = 'none'))
+  # })
 
 
   output$search_endpoints <- renderUI({
@@ -134,6 +141,10 @@ server <- function(input, output) {
         onDropdownOpen = I("function($dropdown) {if (!this.lastQuery.length) {this.close(); this.settings.openOnFocus = false;}}"),
         onType = I("function (str) {if (str === '') {this.close();}}")
       ))
+  })
+
+  output$background <- renderUI({
+    HTML(markdown::markdownToHTML(knit('seasonal_patterns_endpoints.Rmd', quiet = TRUE)),fragment.only = T)
   })
 }
 
