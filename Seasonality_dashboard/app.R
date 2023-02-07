@@ -37,14 +37,12 @@ seasonal_splines_FinRegistry <- read_tsv('data/FINREGISTRY_seasonal_splines.txt'
                                 summarise(avg_seasonal_val=median(seasonal_val))
 
 
-
-# Define UI for application that draws a histogram
 ui <- fluidPage(
 
   # Application title
   titlePanel("Seasonality dashboard"),
 
-  # Sidebar with a slider input for number of bins
+  # TabPanel with visualization and background
   tabsetPanel(
     tabPanel('Visualization',
       fluidRow(
@@ -56,7 +54,7 @@ ui <- fluidPage(
           )
       ),
       hr(),
-        # Show a plot of the generated distribution
+        # Output elements: figure and a table
       fluidRow(
            column(6,
               plotOutput("plot_FinRegistry",height=600)
@@ -80,7 +78,7 @@ ui <- fluidPage(
                                ")))
   )
 
-# Define server logic required to draw a histogram
+# Define server logic
 server <- function(input, output) {
   clicked <- reactiveValues(endpoint_idx=matrix(,nrow=1,ncol=2))
   observeEvent(input$FinRegistry_table_cells_selected, {
