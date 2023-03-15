@@ -29,14 +29,17 @@ run_seasonality_gam <- function(dat,seasonal_spline_avg=NULL){
   k_trend <- 6
   k_seasonal <- 6
   dat$nr_days <- 30
-  f_null <- 'COUNT ~ offset(log(nr_days)) + s(EVENT_YEAR, k=k_trend, bs="ps")'
+  f_null <- 'COUNT ~ s(EVENT_YEAR, k=k_trend, bs="ps")'
   if(!is.null(seasonal_spline_avg)){
     dat$avg_seasonal_val <- get_seasonal_spline_adj(seasonal_spline_avg,dat$EVENT_MONTH)
-    f_null <- paste(f_null,'avg_seasonal_val',sep='+')
+    offset <- 'offset(log(nr_days) + avg_seasonal_val)'
+  }else{
+    offset <- 'offset(log(nr_days))'
   }
+  f_null <- paste(f_null,offset,sep='+')
   f_seasonal <- paste(f_null,'s(EVENT_MONTH, k=k_seasonal, bs="cp")',sep='+')
-  mod_seasonal <- gam(as.formula(f_seasonal), family=quasipoisson(), data=dat, knots=list(EVENT_MONTH = c(0.5, 12.5)), scale=-1)
-  mod_null <- gam(as.formula(f_null), sp=mod_seasonal$sp['s(EVENT_YEAR)'],family=quasipoisson(), data=dat, scale=-1)
+  mod_seasonal <- gam(as.formula(f_seasonal), family=quasipossion(), data=dat, knots=list(EVENT_MONTH = c(0.5, 12.5)), scale=-1)
+  mod_null <- gam(as.formula(f_null), sp=mod_seasonal$sp['s(EVENT_YEAR)'],family=quasipossion(), data=dat, scale=-1)
   return(list(seasonal=mod_seasonal, null=mod_null))
 }
 
@@ -75,7 +78,7 @@ summarise_seasonality <- function(dat,seasonal_spline_avg=NULL){
 
 extract_seasonal_spline <- function(dat){
   mod_list <- run_seasonality_gam(dat)
-  months_vec <- seq(0.5,12.5,by=0.1)
+  months_vec <- seq(0.5,12.5,by=0.01)
   seasonal_pred <- predict(mod_list$seasonal,newdata=data.frame(nr_days=30,EVENT_YEAR=1998,EVENT_MONTH=months_vec),type='terms')[,'s(EVENT_MONTH)']
   return(tibble(month=months_vec,seasonal_val=seasonal_pred))
 }
@@ -117,7 +120,7 @@ compare_gam_fits <- function(mod_list,monthly_counts,endpoint){
         axis.text.y=element_text(size=14))
 }
 
-trend_plot <- function(dat,mod_list,seasonal_spline_avg){
+trend_plot <- function(dat,mod_list,seasonal_spline_avg=NULL){
   years_vec <- seq(1998,2019,by=0.1)
   trend_pred <- predict(mod_list$seasonal,newdata=get_grid(dat,type='trend',seasonal_spline_avg),type='terms',se.fit=T)
   trend_pred_dat <- tibble(year=years_vec,
@@ -140,7 +143,7 @@ trend_plot <- function(dat,mod_list,seasonal_spline_avg){
         axis.text.y=element_text(size=14))
 }
 
-seasonality_plot <- function(dat,mod_list,seasonal_spline_avg){
+seasonality_plot <- function(dat,mod_list,seasonal_spline_avg=NULL){
   months_vec <- seq(0.5,12.5,by=0.1)
   seasonal_pred <- predict(mod_list$seasonal,newdata=get_grid(dat,type='seasonal',seasonal_spline_avg),type='terms',se.fit=T)
   seasonal_pred_dat <- tibble(month=months_vec,
