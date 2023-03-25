@@ -38,8 +38,8 @@ run_seasonality_gam <- function(dat,seasonal_spline_avg=NULL){
   }
   f_null <- paste(f_null,offset,sep='+')
   f_seasonal <- paste(f_null,'s(EVENT_MONTH, k=k_seasonal, bs="cp")',sep='+')
-  mod_seasonal <- gam(as.formula(f_seasonal), family=quasipossion(), data=dat, knots=list(EVENT_MONTH = c(0.5, 12.5)), scale=-1)
-  mod_null <- gam(as.formula(f_null), sp=mod_seasonal$sp['s(EVENT_YEAR)'],family=quasipossion(), data=dat, scale=-1)
+  mod_seasonal <- gam(as.formula(f_seasonal), family=quasipoisson(), data=dat, knots=list(EVENT_MONTH = c(0.5, 12.5)), scale=-1)
+  mod_null <- gam(as.formula(f_null), sp=mod_seasonal$sp['s(EVENT_YEAR)'],family=quasipoisson(), data=dat, scale=-1)
   return(list(seasonal=mod_seasonal, null=mod_null))
 }
 
@@ -143,8 +143,8 @@ trend_plot <- function(dat,mod_list,seasonal_spline_avg=NULL){
         axis.text.y=element_text(size=14))
 }
 
-seasonality_plot <- function(dat,mod_list,seasonal_spline_avg=NULL){
-  months_vec <- seq(0.5,12.5,by=0.1)
+seasonality_plot <- function(dat,mod_list,a,b,seasonal_spline_avg=NULL){
+  months_vec <- seq(a-0.5,b-0.5,by=0.1)
   seasonal_pred <- predict(mod_list$seasonal,newdata=get_grid(dat,type='seasonal',seasonal_spline_avg),type='terms',se.fit=T)
   seasonal_pred_dat <- tibble(month=months_vec,
                               est=seasonal_pred$fit[,'s(EVENT_MONTH)'],
