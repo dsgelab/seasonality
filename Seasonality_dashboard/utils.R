@@ -1,8 +1,18 @@
-library(dplyr)
-library(tidyr)
-library(lubridate)
-library(ggplot2)
-library(mgcv)
+filter_monthly_counts <- function(monthly_counts,GWAS_info_dat){
+  monthly_counts_filtered <- filter(monthly_counts,EVENT_YEAR>=1998 & EVENT_YEAR<=2019)
+  month_year_endpoint_template <- expand_grid(ENDPOINT=unique(monthly_counts_filtered$ENDPOINT),
+                                              EVENT_YEAR=seq(min(monthly_counts_filtered$EVENT_YEAR),
+                                                             max(monthly_counts_filtered$EVENT_YEAR)),
+                                              EVENT_MONTH=seq_len(12))
+  monthly_counts_filtered <- left_join(month_year_endpoint_template,
+                                       monthly_counts_filtered,
+                                       by=c('ENDPOINT','EVENT_YEAR','EVENT_MONTH')) %>%
+    mutate(COUNT=ifelse(is.na(COUNT),0L,COUNT),
+           EVENT_DATE=ym(paste0(EVENT_YEAR,'-',EVENT_MONTH))) %>%
+    inner_join(select(GWAS_info_dat,ENDPOINT=phenocode,num_gw_significant),by='ENDPOINT') %>%
+    arrange(ENDPOINT,EVENT_YEAR,EVENT_MONTH)
+  return(monthly_counts_filtered)
+}
 
 get_seasonal_spline_adj <- function(seasonal_spline_avg,months){
   approx(x=seasonal_spline_avg$month,
@@ -25,7 +35,7 @@ get_grid <- function(dat,type,seasonal_spline_avg=NULL){
   return(grid_dat)
 }
 
-run_seasonality_gam <- function(dat,seasonal_spline_avg=NULL){
+run_seasonality_gam <- function(dat,a,b,seasonal_spline_avg=NULL){
   k_trend <- 6
   k_seasonal <- 6
   dat$nr_days <- 30
@@ -38,7 +48,7 @@ run_seasonality_gam <- function(dat,seasonal_spline_avg=NULL){
   }
   f_null <- paste(f_null,offset,sep='+')
   f_seasonal <- paste(f_null,'s(EVENT_MONTH, k=k_seasonal, bs="cp")',sep='+')
-  mod_seasonal <- gam(as.formula(f_seasonal), family=quasipoisson(), data=dat, knots=list(EVENT_MONTH = c(0.5, 12.5)), scale=-1)
+  mod_seasonal <- gam(as.formula(f_seasonal), family=quasipoisson(), data=dat, knots=list(EVENT_MONTH = c(a-0.5, b-0.5)), scale=-1)
   mod_null <- gam(as.formula(f_null), sp=mod_seasonal$sp['s(EVENT_YEAR)'],family=quasipoisson(), data=dat, scale=-1)
   return(list(seasonal=mod_seasonal, null=mod_null))
 }
@@ -155,7 +165,7 @@ seasonality_plot <- function(dat,mod_list,a,b,seasonal_spline_avg=NULL){
                 y=est)) +
   geom_ribbon(aes(x=month,ymin=lower,ymax=upper),alpha=0.3,fill='blue') +
   geom_hline(yintercept=0,linetype='dashed',color='red') +
-  scale_x_continuous(breaks=seq_len(12)) +
+  scale_x_continuous(breaks=seq(a,b)) +
   xlab('Month number') +
   ylab('Smooth term') +
   ggtitle('Seasonal component') +
@@ -164,21 +174,4 @@ seasonality_plot <- function(dat,mod_list,a,b,seasonal_spline_avg=NULL){
         axis.text.x=element_text(size=14),
         axis.title.y=element_text(size=14),
         axis.text.y=element_text(size=14))
-}
-
-
-filter_monthly_counts <- function(monthly_counts,GWAS_info_dat){
-  monthly_counts_filtered <- filter(monthly_counts,EVENT_YEAR>=1998 & EVENT_YEAR<=2019)
-  month_year_endpoint_template <- expand_grid(ENDPOINT=unique(monthly_counts_filtered$ENDPOINT),
-                                              EVENT_YEAR=seq(min(monthly_counts_filtered$EVENT_YEAR),
-                                                             max(monthly_counts_filtered$EVENT_YEAR)),
-                                              EVENT_MONTH=seq_len(12))
-  monthly_counts_filtered <- left_join(month_year_endpoint_template,
-                                       monthly_counts_filtered,
-                                       by=c('ENDPOINT','EVENT_YEAR','EVENT_MONTH')) %>%
-                              mutate(COUNT=ifelse(is.na(COUNT),0L,COUNT),
-                                     EVENT_DATE=ym(paste0(EVENT_YEAR,'-',EVENT_MONTH))) %>%
-                              inner_join(select(GWAS_info_dat,ENDPOINT=phenocode,num_gw_significant),by='ENDPOINT') %>%
-                              arrange(ENDPOINT,EVENT_YEAR,EVENT_MONTH)
-  return(monthly_counts_filtered)
 }
