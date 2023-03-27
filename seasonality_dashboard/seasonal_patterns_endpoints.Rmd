@@ -28,7 +28,7 @@ For each disease we have a time series
 $$(x_{y,m})_{y\in\{1998,...,2019\},m \in \{January,...,December\}}$$
 where $x_{y,t}$ is the number of first disease endpoints in a particular month in a particular year. The aim is to extract the annual trend and seasonal trend from the time series. Since we are dealing with counts, we assume they come from a modified Poisson distribution
 $$
-x_{y,m} \sim Quasi-Poisson(30\mu,\theta)
+x_{y,m} \sim \text{quasi-poisson}(30\mu,\theta)
 $$
 Quasi-Poission is used as it can account for over- or underdispersion, $\theta$, in the count data. In particular, the variance is assumed to be proportional to $\theta$
 $$
@@ -80,7 +80,7 @@ where $s^2_{t,s}$ is the estimated residual variance under a model with both a t
 
 When observing the endpoint count data, we noticed that there is a substantial dip in July for many of the endpoints, one that could be explained simply by holidays. This affects the resulting seasonal components in the models, reflecting in that a great majority of endpoint counts showed substantial seasonality:  
 
-```{r fig.align="center",message=FALSE}
+```{r fig.align="center",echo=F,message=FALSE}
 seasonal_summary_FinnGen <- read.table('data/FINNGEN_seasonal_summary.txt',header=T) %>%
                             as_tibble()
 seasonal_splines_FinRegistry <- read_tsv('data/FINREGISTRY_seasonal_splines.txt') %>%
@@ -101,7 +101,7 @@ theme(axis.title.x = element_text(size=16),
    
 Since we are not interested in capturing the seasonality of healthcare availability, we attempt to adjust for this by using the median seasonal component, $M_s(x)$ from all endpoints as a linear covariate in our GAM. This component looks like this:
 
-```{r fig.align="center"}
+```{r fig.align="center",echo=F}
 group_by(seasonal_splines_FinRegistry,month) %>%
 summarise(avg_seasonal_val=median(seasonal_val)) %>%
 ggplot() +
