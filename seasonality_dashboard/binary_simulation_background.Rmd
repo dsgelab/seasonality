@@ -1,5 +1,5 @@
 ---
-title: "Genetics of seasonality - Data generating process"
+title: "Genetics of seasonality - Disease endpoints"
 author: "Sölvi Rögnvaldsson"
 date: "2023-03-17"
 output: html_document

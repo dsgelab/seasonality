@@ -15,6 +15,7 @@ library(shinyBS)
 library(shinyjs)
 library(shinyWidgets)
 source('DGP_simulation_utils.R')
+source('DGP_qt_simulation_utils.R')
 source('utils.R')
 
 theme_custom <-  theme(plot.title = element_text(size=16),
@@ -107,9 +108,9 @@ ui <- shinyUI(fluidPage(
                                         class = "dropdown")),
                               dashboardSidebar(width=300,
                                 sidebarMenu(
-                                  menuItem("Seasonality in FinRegistry", tabName = "finregistry", icon = icon("chart-simple")),
-                                  menuItem("Simulation - binary trait", tabName = "binary_simulation", icon = icon("computer")),
-                                  menuItem("Simulation - quantitative trait", tabName = "qt_simulation", icon = icon("chart-line"))
+                                  menuItem("Disease endpoints - FinRegistry", tabName = "finregistry", icon = icon("chart-bar")),
+                                  menuItem("Simulation - Binary trait", tabName = "binary_simulation", icon = icon("hospital")),
+                                  menuItem("Simulation - Quantitative trait", tabName = "qt_simulation", icon = icon("chart-line"))
                                 )
                               ),
                               dashboardBody(
@@ -148,37 +149,76 @@ ui <- shinyUI(fluidPage(
                                               tabItem(tabName='binary_simulation',
                                                       # TabPanel with visualization and background
                                                       sidebarLayout(
-                                                        sidebarPanel(width=3,
-                                                                     sliderInput(inputId='beta_b',label='Baseline seasonal effect',value=0,min=-1,max=1,step = 0.1),
-                                                                     sliderInput(inputId='beta_g',label='Genetic seasonal effect',value=0,min=-0.5,max=0.5,step=0.05),
-                                                                     sliderInput(inputId='phi',label='Seasonal phase angle',value=0,min=0,max=3.14,step=0.1),
-                                                                     radioButtons(inputId='mod_type',label = 'Model type',
-                                                                                  choices=c('Additive'='additive','Recessive'='recessive','Dominant'='dominant'),
-                                                                                  selected='additive'),
-                                                                     hr(),
-                                                                     sliderInput(inputId='lag',label='Mean diagnosis lag (months)',value=1,min=0,max=6,step=0.1),
-                                                                     hr(),
-                                                                     sliderInput(inputId='n',label='Sample size (n)',value=40000,min=10000,max=100000,step=5000),
-                                                                     sliderInput(inputId='MAF',label='Minor allele frequency (MAF)',value=0.1,min=0.01,max=0.5,step=0.01)
-
-                                                        ),
-                                                        mainPanel(width=9,
+                                                        column(width=9,
+                                                                tabBox(id='tabset2',width=NULL,
                                                                   tabsetPanel(
                                                                     tabPanel('Distributions',
                                                                              fluidRow(
-                                                                               plotOutput("plot_dist",height=300),
-                                                                               plotOutput("plot_lag",height=300)
+                                                                               plotOutput("binary_plot_dist",height=300),
+                                                                               plotOutput("binary_plot_lag",height=300)
                                                                              ),
                                                                     ),
                                                                     tabPanel('Simulate',
                                                                              fluidRow(
-                                                                               plotOutput("sim_plot",height=800)
+                                                                               plotOutput("binary_sim_plot",height=800)
                                                                              ),
                                                                     ),
                                                                     tabPanel('Background',
-                                                                             uiOutput('background_sim')
+                                                                             uiOutput('binary_background_sim')
                                                                     )
                                                                   ),
+                                                                ),
+                                                        ),
+                                                        sidebarPanel(width=3,
+                                                                     sliderInput(inputId='binary_beta_b',label='Baseline seasonal effect',value=0,min=-1,max=1,step = 0.1),
+                                                                     sliderInput(inputId='binary_beta_g',label='Genetic seasonal effect',value=0,min=-0.5,max=0.5,step=0.05),
+                                                                     sliderInput(inputId='binary_phi',label='Seasonal phase angle',value=0,min=0,max=3.14,step=0.1),
+                                                                     radioButtons(inputId='binary_mod_type',label = 'Model type',
+                                                                                  choices=c('Additive'='additive','Recessive'='recessive','Dominant'='dominant'),
+                                                                                  selected='additive'),
+                                                                     hr(),
+                                                                     sliderInput(inputId='binary_lag',label='Mean diagnosis lag (months)',value=1,min=0,max=6,step=0.1),
+                                                                     hr(),
+                                                                     sliderInput(inputId='binary_n',label='Sample size (n)',value=40000,min=10000,max=100000,step=5000),
+                                                                     sliderInput(inputId='binary_MAF',label='Minor allele frequency (MAF)',value=0.1,min=0.01,max=0.5,step=0.01)
+
+                                                        ),
+                                                      )),
+                                              tabItem(tabName='qt_simulation',
+                                                      sidebarLayout(
+                                                        column(width=9,
+                                                               tabBox(id='tabset3',width=NULL,
+                                                                      tabsetPanel(
+                                                                        tabPanel('Mean structure',
+                                                                                 fluidRow(
+                                                                                   plotOutput("qt_plot_dist",height=300,width=600),
+                                                                                 ),
+                                                                        ),
+                                                                        tabPanel('Simulate',
+                                                                                 fluidRow(
+                                                                                   plotOutput("qt_sim_plot",height=400)
+                                                                                 ),
+                                                                        ),
+                                                                        tabPanel('Background',
+                                                                                 uiOutput('qt_background_sim')
+                                                                        )
+                                                                      ),
+                                                               ),
+                                                        ),
+                                                        sidebarPanel(width=3,
+                                                                     sliderInput(inputId='qt_beta_g',label='Additive genetic effect',value=0,min=-5,max=5,step = 0.1),
+                                                                     sliderInput(inputId='qt_beta_a',label='Baseline seasonal effect',value=0,min=-5,max=5,step = 0.1),
+                                                                     sliderInput(inputId='qt_phi',label='Baseline seasonal phase angle',value=0,min=0,max=3.14,step=0.1),
+                                                                     sliderInput(inputId='qt_beta_ag',label='Genetic-seasonal amplitude effect',value=0,min=-5,max=5,step=0.05),
+                                                                     sliderInput(inputId='qt_beta_pg',label='Genetic-seasonal phase effect',value=0,min=0,max=3.14,step=0.05),
+                                                                     radioButtons(inputId='qt_mod_type',label = 'Model type',
+                                                                                  choices=c('Additive'='additive','Recessive'='recessive','Dominant'='dominant'),
+                                                                                  selected='additive'),
+                                                                     hr(),
+                                                                     sliderInput(inputId='qt_sigma',label='Standard deviation',value=0.5,min=0,max=2,step=0.01),
+                                                                     sliderInput(inputId='qt_n',label='Sample size (n)',value=40000,min=10000,max=100000,step=5000),
+                                                                     sliderInput(inputId='qt_MAF',label='Minor allele frequency (MAF)',value=0.1,min=0.01,max=0.5,step=0.01)
+
                                                         ),
                                                       ))
                                             )
@@ -253,41 +293,42 @@ server <- function(input, output, session) {
     withMathJax(HTML(markdown::markdownToHTML(knit('seasonal_patterns_endpoints.Rmd', quiet = TRUE)),fragment.only = T))
   })
 
-  observeEvent(input$beta_b, {
-    gamma <- if(input$mod_type %in% c('recessive','dominant')) 1 else 2
-    if(input$beta_b + gamma*input$beta_g>1){
-      updateSliderInput(session, "beta_g", max=(1-input$beta_b)/gamma)
-    }else if(input$beta_b + gamma*input$beta_g< -1){
-      updateSliderInput(session, "beta_g", min=(-1-input$beta_b)/gamma)
+  observeEvent(input$binary_beta_b, {
+    gamma <- if(input$binary_mod_type %in% c('recessive','dominant')) 1 else 2
+    if(input$binary_beta_b + gamma*input$binary_beta_g>1){
+      updateSliderInput(session, "binary_beta_g", max=(1-input$binary_beta_b)/gamma)
+    }else if(input$binary_beta_b + gamma*input$binary_beta_g< -1){
+      updateSliderInput(session, "binary_beta_g", min=(-1-input$binary_beta_b)/gamma)
     }else{
-      updateSliderInput(session, "beta_g", min=-1/gamma,max=1/gamma)
+      updateSliderInput(session, "binary_beta_g", min=-1/gamma,max=1/gamma)
     }
   })
 
-  observeEvent(input$beta_g, {
-    gamma <- if(input$mod_type %in% c('recessive','dominant')) 1 else 2
-    if(input$beta_b + gamma*input$beta_g>1){
-      updateSliderInput(session, "beta_b", max=(1-input$beta_g)/gamma)
-    }else if(input$beta_b + gamma*input$beta_g< -1){
-      updateSliderInput(session, "beta_b", min=(-1-input$beta_g)/gamma)
+  observeEvent(input$binary_beta_g, {
+    gamma <- if(input$binary_mod_type %in% c('recessive','dominant')) 1 else 2
+    if(input$binary_beta_b + gamma*input$binary_beta_g>1){
+      updateSliderInput(session, "binary_beta_b", max=(1-input$binary_beta_g)/gamma)
+    }else if(input$binary_beta_b + gamma*input$binary_beta_g< -1){
+      updateSliderInput(session, "binary_beta_b", min=(-1-input$binary_beta_g)/gamma)
     }else{
-      updateSliderInput(session, "beta_b", min=-1,max=1)
+      updateSliderInput(session, "binary_beta_b", min=-1,max=1)
     }
   })
 
-  output$plot_dist <- renderPlot({
+  output$binary_plot_dist <- renderPlot({
     cols <- c("#BC3C29FF","#0072B5FF","#E18727FF")
-    if(input$mod_type=='recessive'){
+    if(input$binary_mod_type=='recessive'){
       cols <- cols[1:2]
-    }else if(input$mod_type=='dominant'){
+    }else if(input$binary_mod_type=='dominant'){
       cols <- cols[c(1,3)]
     }
-    dist_grid <- get_dist_grid(beta=c(input$beta_b,input$beta_g),phi=input$phi,mod_type=input$mod_type,a=a,b=b) %>% bind_rows()
+    dist_grid <- get_dist_grid(beta=c(input$binary_beta_b,input$binary_beta_g),phi=input$binary_phi,mod_type=input$binary_mod_type,a=a,b=b) %>% bind_rows()
     dens_plot <- ggplot(dist_grid,aes(t,dens,col=as.factor(gt_lab))) +
       geom_line(size=1) +
+      scale_x_continuous(breaks=seq_len(12),expand=c(0,0.2)) +
       scale_y_continuous(limits=c(0,2/12)) +
       scale_color_manual(values=cols,name='Genotype') +
-      xlab('t') +
+      xlab('Month number ') +
       ylab('Density') +
       theme_classic() +
       theme_custom
@@ -295,9 +336,10 @@ server <- function(input, output, session) {
 
     surv_plot <- ggplot(dist_grid,aes(t,surv,col=as.factor(gt_lab))) +
       geom_line(size=1) +
+      scale_x_continuous(breaks=seq_len(12),expand=c(0,0.2)) +
       scale_y_continuous(limits=c(0,1)) +
       scale_color_manual(values=cols,name='Genotype') +
-      xlab('t') +
+      xlab('Month number') +
       ylab('Survival') +
       theme_classic() +
       theme_custom
@@ -305,25 +347,25 @@ server <- function(input, output, session) {
     dens_plot + surv_plot
   })
 
-  output$plot_lag <- renderPlot({
-    mu_lag <- input$lag
+  output$binary_plot_lag <- renderPlot({
+    mu_lag <- input$binary_lag
     sigma_lag <- sqrt(mu_lag)
     dist_grid <- tibble(t=seq(0,12,by=0.01),dens=dgamma(t,shape=(mu_lag/sigma_lag)^2,rate=mu_lag/sigma_lag^2))
     lag_plot <- ggplot(dist_grid,aes(t,dens)) +
-      geom_line(size=1,col="#E18727FF") +
+      geom_line(size=1,col="black") +
       ggtitle('Assumed diagnosis lag distribution') +
-      xlab('t') +
+      xlab('Time (in months)') +
       ylab('Density') +
       theme_classic() +
       theme_custom
 
     anonymization_plot <- tibble(t=c(seq(-15,-1),seq(1,15)),dens=1/length(t)) %>%
       ggplot(aes(t,dens)) +
-      geom_col(width=0.8,fill="#E18727FF") +
+      geom_col(width=0.8,fill="black") +
       scale_x_continuous(breaks=c(seq(-15,-1,by=2),seq(1,15,by=2))) +
       scale_y_continuous(limits=c(0,0.05),expand=c(0,0)) +
       ggtitle('Date anonymization distribution') +
-      xlab('t') +
+      xlab('Time (in days)') +
       ylab('Probability') +
       theme_classic() +
       theme_custom
@@ -331,10 +373,9 @@ server <- function(input, output, session) {
     lag_plot + anonymization_plot
   })
 
-  output$sim_plot <- renderPlot({
-    print('hae')
-    sim_dat <- simulate_seasonal_dist(n=input$n,MAF=input$MAF,beta=c(input$beta_b,input$beta_g),phi=input$phi,mod_type=input$mod_type,a=a,b=b)
-    sim_dat$EVENT_MONTH_DEC_PB <- perturb_surv_times(surv_times=sim_dat$EVENT_MONTH_DEC,mu=input$lag,sigma=sqrt(input$lag),a=a,b=b)
+  output$binary_sim_plot <- renderPlot({
+    sim_dat <- simulate_seasonal_dist(n=input$binary_n,MAF=input$binary_MAF,beta=c(input$binary_beta_b,input$binary_beta_g),phi=input$binary_phi,mod_type=input$binary_mod_type,a=a,b=b)
+    sim_dat$EVENT_MONTH_DEC_PB <- perturb_surv_times(surv_times=sim_dat$EVENT_MONTH_DEC,mu=input$binary_lag,sigma=sqrt(input$binary_lag),a=a,b=b)
     monthly_counts <- mutate(sim_dat,month=floor(EVENT_MONTH_DEC),
                              month_pb=floor(EVENT_MONTH_DEC_PB)) %>%
       pivot_longer(cols=c('month','month_pb'),names_to = 'ENDPOINT',values_to = 'EVENT_MONTH') %>%
@@ -349,7 +390,6 @@ server <- function(input, output, session) {
     survfit_sim <- survfit(surv_obj_sim ~ gt_lab,data=sim_dat)
     surv_obj_sim_pb <- Surv(time=sim_dat$EVENT_MONTH_DEC_PB,event=rep(1,nrow(sim_dat)))
     survfit_sim_pb <- survfit(surv_obj_sim_pb ~ gt_lab,data=sim_dat)
-    print('hae2')
     KM_plot <- (KM_gg(survfit_sim,'True disease onset') + theme_custom) +
       (KM_gg(survfit_sim_pb,title='True disease onset with perturbation') + theme_custom + theme(legend.position='none'))
     monthly_counts_plot <- ggplot(monthly_counts,aes(EVENT_MONTH,count,fill=factor(ENDPOINT_LAB,levels=c('True disease onset','Perturbed disease diagnosis')))) +
@@ -404,8 +444,38 @@ server <- function(input, output, session) {
   })
 
 
-  output$background_sim <- renderUI({
-    withMathJax(HTML(markdown::markdownToHTML(knit('simulation_background.Rmd', quiet = TRUE)),fragment.only = T))
+  output$binary_background_sim <- renderUI({
+    withMathJax(HTML(markdown::markdownToHTML(knit('binary_simulation_background.Rmd', quiet = TRUE)),fragment.only = T))
+  })
+
+  output$qt_plot_dist <- renderPlot({
+    mu_grid <- get_mu_grid(beta=c('g'=input$qt_beta_g,
+                                  'a'=input$qt_beta_a,
+                                  'ag'=input$qt_beta_ag,
+                                  'pg'=input$qt_beta_pg),phi=input$qt_phi,mod_type=input$qt_mod_type,P=12)
+    plot_mu_grid(mu_grid,mod_type=input$qt_mod_type,P=12) +
+    theme_custom
+  })
+
+  output$qt_sim_plot <- renderPlot({
+    beta=c('g'=input$qt_beta_g,
+           'a'=input$qt_beta_a,
+           'ag'=input$qt_beta_ag,
+           'pg'=input$qt_beta_pg)
+    sim_dat <- simulate_seasonal_qt(n=input$qt_n,beta=beta,phi=input$qt_phi,sigma=input$qt_sigma,MAF=input$qt_MAF,mod_type=input$qt_mod_type,P=12)
+    mu_grid <- get_mu_grid(beta=beta,phi=input$qt_phi,mod_type=input$qt_mod_type,P=12)
+    dat_plot <- plot_sim_dat(sim_dat=sim_dat,mu_grid=mu_grid,mod_type=input$qt_mod_type,P=12) + theme_custom
+
+    mod_gam <- run_seasonal_qt_gam(sim_dat,P=12)
+    seasonality_qt_plot <- plot_seasonality_qt(mod_gam,P=12) + theme_custom
+
+    sim_dat <- add_seasonal_values(sim_dat,mod_gam,P=12)
+    seasonal_summary <- run_seasonal_mod_qt(dat=sim_dat)
+    dat_plot + seasonality_qt_plot
+  })
+
+  output$qt_background_sim <- renderUI({
+    withMathJax(HTML(markdown::markdownToHTML(knit('qt_simulation_background.Rmd', quiet = TRUE)),fragment.only = T))
   })
 }
 

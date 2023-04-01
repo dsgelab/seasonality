@@ -30,19 +30,20 @@ get_mu_grid <- function(beta,phi,mod_type,P){
 simulate_seasonal_qt <- function(n,beta,phi,sigma,MAF,mod_type,P){
   t <- P*runif(n) # assume time of measurements are uniformly spread over the interval [0,P)
   x_g <- rbinom(n,size=2,prob=MAF) # simulate genotype in Harvey-Weinberg equilibrium
-  mu <- dgp_mu(beta,phi,x_g,t,P)
-  y <- rnorm(n=n,mean=mu,sd=sigma)
-  sim_dat <- tibble(t=t,gt_mod=x_g,y=y)
-  #adjust genotype labels based on model type
   if(mod_type=='recessive'){
-    sim_dat$gt_lab <- as.integer(sim_dat$gt_mod>0)
-    sim_dat$gt_mod <- sim_dat$gt_lab
+    gt_lab <- as.integer(x_g>0)
+    gt_mod <- gt_lab
   }else if(mod_type=='dominant'){
-    sim_dat$gt_lab <- 2*as.integer(sim_dat$gt_mod>1)
-    sim_dat$gt_mod <- as.integer(sim_dat$gt_mod>1)
+    gt_lab <- 2*as.integer(x_g>1)
+    gt_mod <- as.integer(x_g>1)
   }else{
-    sim_dat$gt_lab <- sim_dat$gt_mod
+    gt_mod <- x_g
+    gt_lab <- x_g
   }
+  mu <- dgp_mu(beta,phi,gt_mod,t,P)
+  y <- rnorm(n=n,mean=mu,sd=sigma)
+  sim_dat <- tibble(t=t,gt_mod=gt_mod,gt_lab=gt_lab,y=y)
+  #adjust genotype labels based on model type
   return(sim_dat)
 }
 run_seasonal_qt_gam <- function(dat,P){
@@ -81,9 +82,9 @@ run_seasonal_mod_qt <- function(dat){
 
 plot_mu_grid <- function(mu_grid,mod_type,P){
   cols <- c("#BC3C29FF","#0072B5FF","#E18727FF")
-  if(input$mod_type=='recessive'){
+  if(mod_type=='recessive'){
     cols <- cols[1:2]
-  }else if(input$mod_type=='dominant'){
+  }else if(mod_type=='dominant'){
     cols <- cols[c(1,3)]
   }
   ggplot(data=mu_grid) +
@@ -124,31 +125,31 @@ plot_seasonality_qt <- function(mod,P){
           axis.text.y=element_text(size=14))
 }
 
-input <- list(n=10000,
-              MAF=0.05,
-              P=12, # period
-              beta=c('g'=0,  # additive genetic effect
-                     'a'=0.2,  # baseline seasonal/circadian amplitude
-                     'ag'=0,   # genetic-season amplitude interaction
-                     'pg'=0.3), # genetic-season phase interaction
-              phi=1, # baseline phase
-              sigma=0.05,
-              mod_type='additive') #residual standard deviation
-
-sim_dat <- simulate_seasonal_qt(n=input$n,beta=input$beta,phi=input$phi,sigma=input$sigma,MAF=input$MAF,mod_type=input$mod_type,P=12)
-mu_grid <- get_mu_grid(beta=input$beta,phi=input$phi,mod_type=input$mod_type,P=12)
-plot_mu_grid(mu_grid,mod_type=input$mod_type,P=12)
-plot_sim_dat(sim_dat=sim_dat,mu_grid=mu_grid,mod_type=input$mod_type,P=12)
-
-mod_gam <- run_seasonal_qt_gam(sim_dat,P=12)
-plot_seasonality_qt(mod_gam,P=12)
-
-sim_dat <- add_seasonal_values(sim_dat,mod_gam,P=12)
-
-run_seasonal_mod_qt(dat=sim_dat)
-
-#demonstrate seasonal splitting
-ggplot(sim_dat) +
-geom_point(aes(t,y,col=factor(seasonal_binary)),alpha=0.5) +
-scale_color_manual(values=c("#BC3C29FF","#0072B5FF"),name='High season') +
-theme_classic()
+# input <- list(n=10000,
+#               MAF=0.05,
+#               P=12, # period
+#               beta=c('g'=0,  # additive genetic effect
+#                      'a'=0.2,  # baseline seasonal/circadian amplitude
+#                      'ag'=0,   # genetic-season amplitude interaction
+#                      'pg'=0.3), # genetic-season phase interaction
+#               phi=1, # baseline phase
+#               sigma=0.05, #residual standard deviation
+#               mod_type='additive')
+#
+# sim_dat <- simulate_seasonal_qt(n=input$n,beta=input$beta,phi=input$phi,sigma=input$sigma,MAF=input$MAF,mod_type=input$mod_type,P=12)
+# mu_grid <- get_mu_grid(beta=input$beta,phi=input$phi,mod_type=input$mod_type,P=12)
+# plot_mu_grid(mu_grid,mod_type=input$mod_type,P=12)
+# plot_sim_dat(sim_dat=sim_dat,mu_grid=mu_grid,mod_type=input$mod_type,P=12)
+#
+# mod_gam <- run_seasonal_qt_gam(sim_dat,P=12)
+# plot_seasonality_qt(mod_gam,P=12)
+#
+# sim_dat <- add_seasonal_values(sim_dat,mod_gam,P=12)
+#
+# run_seasonal_mod_qt(dat=sim_dat)
+#
+# #demonstrate seasonal splitting
+# ggplot(sim_dat) +
+# geom_point(aes(t,y,col=factor(seasonal_binary)),alpha=0.5) +
+# scale_color_manual(values=c("#BC3C29FF","#0072B5FF"),name='High season') +
+# theme_classic()

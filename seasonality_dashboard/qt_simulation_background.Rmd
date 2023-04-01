@@ -1,0 +1,14 @@
+---
+title: "Genetics of seasonality - Quantitative traits"
+author: "Sölvi Rögnvaldsson"
+date: "2023-04-01"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+
+## Data generating process 
