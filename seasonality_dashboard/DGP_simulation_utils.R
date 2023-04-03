@@ -1,3 +1,4 @@
+library(broom)
 ### DGP of disease endpoint seasonality
 
 dseasonal <- function(t,x_g,beta,phi,a,b){
@@ -137,7 +138,8 @@ run_seasonality_gam_sim <- function(dat,a,b){
   return(mod_seasonal)
 }
 
-get_seasonal_phenotype <- function(pheno_dat,endpoint_id,seasonal_spline){
+get_seasonal_phenotype <- function(pheno_dat,endpoint_id,seasonal_spline,a,b){
+  pheno_dat[,endpoint_id,drop=T] <- ifelse(pheno_dat[,endpoint_id,drop=T]>(b-0.5),pheno_dat[,endpoint_id,drop=T]-(b-a),pheno_dat[,endpoint_id,drop=T])
   seasonal_pheno_dat <- mutate(pheno_dat,
                                seasonal_val=approx(x=seasonal_spline$month,
                                                    y=seasonal_spline$seasonal_val,
@@ -153,11 +155,14 @@ run_seasonal_models <- function(monthly_counts,pheno_dat,endpoint_id,a,b){
   months_vec <- seq(a-0.5,b-0.5,by=0.01)
   seasonal_pred <- predict(mod_counts,newdata=data.frame(EVENT_MONTH=months_vec),type='terms')[,'s(EVENT_MONTH)']
   seasonal_spline <- tibble(month=months_vec,seasonal_val=seasonal_pred)
-  seasonal_pheno <- get_seasonal_phenotype(pheno_dat=pheno_dat,endpoint_id=endpoint_id,seasonal_spline = seasonal_spline)
+  seasonal_pheno <- get_seasonal_phenotype(pheno_dat=pheno_dat,endpoint_id=endpoint_id,seasonal_spline = seasonal_spline,a=a,b=b) %>%
+                    mutate(seasonal_val_01=(seasonal_val-min(seasonal_val))/(max(seasonal_val)-min(seasonal_val)))
   binary_mod <- glm(seasonal_val_binary ~ gt_mod,data=seasonal_pheno,family='binomial')
+  qt_raw_mod <- lm(seasonal_val_01 ~ gt_mod,data=seasonal_pheno)
   qt_mod <- lm(seasonal_val_qt ~ gt_mod,data=seasonal_pheno)
-  return(list(seasonal_pheno=seasonal_pheno,binary_mod=binary_mod,qt_mod=qt_mod))
+  return(list(seasonal_pheno=seasonal_pheno,binary_mod=binary_mod,qt_raw_mod=qt_raw_mod,qt_mod=qt_mod))
 }
+
 
 sim_pipeline <- function(n,MAF,beta,phi,mod_type='additive',a,b,mu_lag,sigma_lag){
   sim_dat <- simulate_seasonal_dist(n=n,MAF=MAF,beta=beta,phi=phi,mod_type=mod_type,a=a,b=b)
@@ -173,11 +178,13 @@ sim_pipeline <- function(n,MAF,beta,phi,mod_type='additive',a,b,mu_lag,sigma_lag
                                                         labels=c('True disease onset','Perturbed disease diagnosis'))))
   seasonal_mods <- run_seasonal_models(monthly_counts,sim_dat,endpoint_id='EVENT_MONTH_DEC',a=a,b=b)
   seasonal_mods_pb <- run_seasonal_models(monthly_counts,sim_dat,endpoint_id='EVENT_MONTH_DEC_PB',a=a,b=b)
-  return(list(sim_dat=sim_dat,
-              binary_mod=seasonal_mods$binary_mod,
-              qt_mod=seasonal_mods$qt_mod,
-              binary_mod_pb=seasonal_mods_pb$binary_mod,
-              qt_mod_pb=seasonal_mods_pb$qt_mod))
+  mod <- c('binary_mod','qt_raw_mod','qt_mod')
+  mod_summary <- lapply(mod,function(m){
+    bind_rows(tidy(seasonal_mods[[m]]) %>% mutate(perturbed=F),
+              tidy(seasonal_mods_pb[[m]]) %>% mutate(perturbed=T)) %>%
+    mutate(mod=m) %>% filter(term=='gt_mod') %>% select(-term)
+  }) %>% bind_rows()
+  return(list(sim_dat=sim_dat,mod_summary=mod_summary))
 }
 
 plot_surv_grid_panel <- function(surv_grid){
