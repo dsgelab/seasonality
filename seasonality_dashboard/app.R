@@ -8,23 +8,18 @@ library(DT)
 library(knitr)
 library(survival)
 library(mgcv)
+library(mgcViz)
 library(ggplot2)
 library(patchwork)
 library(shinydashboard)
 library(shinyBS)
 library(shinyjs)
 library(shinyWidgets)
-source('DGP_simulation_utils.R')
-source('DGP_qt_simulation_utils.R')
-source('utils.R')
+library(readxl)
+source('utils/process_underlying_seasonality_utils.R')
+source('utils/seasonality_utils.R')
+source('../R/DGP_qt_seasonality/DGP_qt_simulation_utils.R')
 
-theme_custom <-  theme(plot.title = element_text(size=16),
-                       axis.title.x = element_text(size=16),
-                       axis.text.x = element_text(size=14),
-                       axis.title.y = element_text(size=16),
-                       axis.text.y = element_text(size=14),
-                       legend.title = element_text(size=16),
-                       legend.text = element_text(size=14))
 
 js <- '.nav-tabs-custom .nav-tabs li.active {
     border-top-color: #1a3263;
@@ -38,37 +33,26 @@ js_button <- 'a.btn {
 js_background <- ".content {background-color: #FFFFFF;}"
 m_item <- ".sidebar-menu li a { font-size: 15px; }"
 
+cols_to_format <- c('ptr_est','ptr_lower','ptr_upper','val_peak','dispersion')
+
 GWAS_info_dat <- read_tsv('data/finngen_R10_finngen_R10_analysis_data_finngen_R10_pheno_n.tsv')
 
 monthly_counts_FinRegistry  <- read_tsv('data/FINREGISTRY_endpoints_monthly_count_green.txt') %>%
-  filter_monthly_counts(.,GWAS_info_dat)
+                               filter_monthly_counts(.,GWAS_info_dat=GWAS_info_dat,
+                                                     endpoint_mapping_path='data/finngen_R10_endpoint_core_noncore_1.0.xlsx')
 
-cols_to_format <- c('pval','log10_pval','val_peak','val_trough','ptr','af','var_fraction','dispersion')
-
-seasonal_summary_FinnGen <- read.table('data/FINNGEN_seasonal_summary.txt',header=T) %>%
-  as_tibble() %>%
-  rename(log10_pval=log_pval) %>%
-  mutate(log10_pval=log10_pval/log(10)) %>%
-  inner_join(select(GWAS_info_dat,ENDPOINT=phenocode,num_gw_significant),by='ENDPOINT') %>%
-  mutate(across(all_of(cols_to_format), format,digits=3))
 
 seasonal_summary_FinRegistry <- read_tsv('data/FINREGISTRY_seasonal_summary.txt') %>%
-  inner_join(select(seasonal_summary_FinnGen,ENDPOINT,num_gw_significant),by='ENDPOINT')%>%
-  mutate(across(all_of(cols_to_format), format,digits=3)) %>%
-  mutate(across(all_of(c('af','var_fraction')),as.numeric)) %>%
-  select(-pval,-log10_pval)
-
-seasonal_summary_FinRegistry_adj <- read_tsv('data/FINREGISTRY_seasonal_summary_adj.txt') %>%
-  inner_join(select(seasonal_summary_FinnGen,ENDPOINT,num_gw_significant),by='ENDPOINT')%>%
-  mutate(across(all_of(cols_to_format), format,digits=3)) %>%
-  select(-pval,-log10_pval)
+  mutate(across(all_of(cols_to_format), formatC,format='f',digits=2)) %>%
+  mutate(ptr=paste0(trimws(ptr_est),' (',trimws(ptr_lower),',',trimws(ptr_upper),')')) %>%
+  mutate(smooth_pval=formatC(smooth_pval,format='e',digits=1)) %>%
+  select(`Endpoint ID`=ENDPOINT,PTR=ptr,`Smooth p-value`=smooth_pval,`Month peak`=month_peak,`Month trough`=month_trough,`Dispersion`=dispersion)
 
 seasonal_splines_FinRegistry <- read_tsv('data/FINREGISTRY_seasonal_splines.txt') %>%
-  inner_join(select(seasonal_summary_FinnGen,ENDPOINT),by='ENDPOINT') %>%
-  group_by(month) %>%
-  summarise(avg_seasonal_val=median(seasonal_val))
+                                #inner_join(select(seasonal_summary_FinnGen,ENDPOINT),by='ENDPOINT') %>%
+                                group_by(month) %>%
+                                summarise(avg_seasonal_val=mean(seasonal_val))
 a <- 1;b <- 13
-
 
 ui <- shinyUI(fluidPage(
                 #tags$head(tags$link(rel="shortcut icon", href="logo_nbg.png")),
@@ -108,9 +92,8 @@ ui <- shinyUI(fluidPage(
                                         class = "dropdown")),
                               dashboardSidebar(width=300,
                                 sidebarMenu(
-                                  menuItem("Disease endpoints - FinRegistry", tabName = "finregistry", icon = icon("chart-bar")),
-                                  menuItem("Simulation - Binary trait", tabName = "binary_simulation", icon = icon("hospital")),
-                                  menuItem("Simulation - Quantitative trait", tabName = "qt_simulation", icon = icon("chart-line"))
+                                  menuItem("Endpoint seasonality - FinRegistry", tabName = "finregistry", icon = icon("chart-bar")),
+                                  menuItem("Simulating underlying process", tabName = "binary_simulation", icon = icon("chart-line"))
                                 )
                               ),
                               dashboardBody(
@@ -123,11 +106,8 @@ ui <- shinyUI(fluidPage(
                                                 tabBox(id='tabset1',width=NULL,
                                                   tabPanel('Visualization',
                                                            fluidRow(
-                                                             column(4,
-                                                                    uiOutput('search_endpoints')
-                                                             ),
                                                              column(8,
-                                                                    checkboxGroupInput(inputId="adjustment",label='Adjustments',choices=c('Median seasonal pattern'='avg'))
+                                                                    radioButtons(inputId="adjustment",label='Adjustment',choices=c('None'='','July and december'='binary','Seasonal mean curve as offset'='mean_offset','Seasonal mean curve as covariate'='mean_covariate'),selected = '',inline = T)
                                                              )
                                                            ),
                                                            hr(),
@@ -140,6 +120,15 @@ ui <- shinyUI(fluidPage(
                                                                     dataTableOutput("FinRegistry_table")
                                                              )
                                                            ),
+                                                  ),
+                                                  tabPanel('Model diagnostics',
+                                                           hr(),
+                                                           # Output elements: figure and a table
+                                                           fluidRow(
+                                                             column(8,
+                                                                    plotOutput("plot_diagnostics",height=600)
+                                                             ),
+                                                           )
                                                   ),
                                                   tabPanel('Background',
                                                            uiOutput('background')
@@ -183,44 +172,8 @@ ui <- shinyUI(fluidPage(
                                                                      sliderInput(inputId='binary_MAF',label='Minor allele frequency (MAF)',value=0.1,min=0.01,max=0.5,step=0.01)
 
                                                         ),
-                                                      )),
-                                              tabItem(tabName='qt_simulation',
-                                                      sidebarLayout(
-                                                        column(width=9,
-                                                               tabBox(id='tabset3',width=NULL,
-                                                                      tabsetPanel(
-                                                                        tabPanel('Mean structure',
-                                                                                 fluidRow(
-                                                                                   plotOutput("qt_plot_dist",height=300,width=600),
-                                                                                 ),
-                                                                        ),
-                                                                        tabPanel('Simulate',
-                                                                                 fluidRow(
-                                                                                   plotOutput("qt_sim_plot",height=400)
-                                                                                 ),
-                                                                        ),
-                                                                        tabPanel('Background',
-                                                                                 uiOutput('qt_background_sim')
-                                                                        )
-                                                                      ),
-                                                               ),
-                                                        ),
-                                                        sidebarPanel(width=3,
-                                                                     sliderInput(inputId='qt_beta_g',label='Additive genetic effect',value=0,min=-5,max=5,step = 0.1),
-                                                                     sliderInput(inputId='qt_beta_a',label='Baseline seasonal effect',value=0,min=-5,max=5,step = 0.1),
-                                                                     sliderInput(inputId='qt_phi',label='Baseline seasonal phase angle',value=0,min=0,max=3.14,step=0.1),
-                                                                     sliderInput(inputId='qt_beta_ag',label='Genetic-seasonal amplitude effect',value=0,min=-5,max=5,step=0.05),
-                                                                     sliderInput(inputId='qt_beta_pg',label='Genetic-seasonal phase effect',value=0,min=0,max=3.14,step=0.05),
-                                                                     radioButtons(inputId='qt_mod_type',label = 'Model type',
-                                                                                  choices=c('Additive'='additive','Recessive'='recessive','Dominant'='dominant'),
-                                                                                  selected='additive'),
-                                                                     hr(),
-                                                                     sliderInput(inputId='qt_sigma',label='Standard deviation',value=0.5,min=0,max=2,step=0.01),
-                                                                     sliderInput(inputId='qt_n',label='Sample size (n)',value=40000,min=10000,max=100000,step=5000),
-                                                                     sliderInput(inputId='qt_MAF',label='Minor allele frequency (MAF)',value=0.1,min=0.01,max=0.5,step=0.01)
-
-                                                        ),
-                                                      ))
+                                                      )
+                                                    )
                                             )
                               )
                 )
@@ -228,69 +181,48 @@ ui <- shinyUI(fluidPage(
 
 # Define server logic
 server <- function(input, output, session) {
-  clicked <- reactiveValues(endpoint_idx=matrix(,nrow=1,ncol=2))
+  clicked <- reactiveValues(endpoint_idx=matrix(0,nrow=1,ncol=2),endpoint=character(0))
   observeEvent(input$FinRegistry_table_cells_selected, {
     clicked$endpoint_idx <- input$FinRegistry_table_cells_selected
-  })
-
-  observeEvent(input$FinnGen_table_cells_selected, {
-    clicked$endpoint_idx <- input$FinnGen_table_cells_selected
+    clicked$endpoint <- as.data.frame(seasonal_summary_FinRegistry)[clicked$endpoint_idx]
   })
 
   fit_gam <- reactive({
-    if(nchar(input$endpoint)!=0){
-      dat_endpoint <- filter(monthly_counts_FinRegistry,ENDPOINT==input$endpoint)
+    if(!identical(clicked$endpoint,character(0))){
+      dat_endpoint <- filter(monthly_counts_FinRegistry,ENDPOINT==clicked$endpoint)
       seasonal_spline_avg <- NULL
-      if('avg' %in% input$adjustment){
+      if(grepl('mean',input$adjustment)){
         seasonal_spline_avg <- seasonal_splines_FinRegistry
       }
-      mod_list <- run_seasonality_gam(dat_endpoint,a=a,b=b,seasonal_spline_avg)
+      mod_list <- run_seasonality_gam(dat_endpoint,a=a,b=b,adjustment=input$adjustment,seasonal_spline_avg=seasonal_spline_avg)
       return(list(dat_endpoint=dat_endpoint,mod_list=mod_list,seasonal_spline_avg=seasonal_spline_avg))
     }
   })
 
   output$plot_FinRegistry <- renderPlot({
-    if(nchar(input$endpoint)!=0){
-      compare_gam_fits(fit_gam()$mod_list,fit_gam()$dat_endpoint,input$endpoint) /
-        (trend_plot(fit_gam()$dat_endpoint,fit_gam()$mod_list,fit_gam()$seasonal_spline_avg) +
-           seasonality_plot(fit_gam()$dat_endpoint,fit_gam()$mod_list,fit_gam()$seasonal_spline_avg,a=a,b=b)) +
+    if(!identical(clicked$endpoint,character(0))){
+      compare_gam_fits(mod_list=fit_gam()$mod_list,monthly_counts=fit_gam()$dat_endpoint,endpoint=clicked$endpoint,adjustment=input$adjustment) /
+        (trend_plot(dat=fit_gam()$dat_endpoint,mod_list=fit_gam()$mod_list,adjustment=input$adjustment,seasonal_spline_avg=fit_gam()$seasonal_spline_avg) +
+           seasonality_plot(dat=fit_gam()$dat_endpoint,mod_list=fit_gam()$mod_list,adjustment=input$adjustment,seasonal_spline_avg=fit_gam()$seasonal_spline_avg,a=a,b=b)) +
         plot_layout(widths = c(2,1,1), nrow=2)
     }
   })
 
   output$FinRegistry_table <- renderDataTable({
-    datatable(#if(!is.null(input$adjustment)) seasonal_summary_FinRegistry_adj else seasonal_summary_FinRegistry,
+    datatable(
       seasonal_summary_FinRegistry,
       selection = list(mode='single',target = 'cell',selectable=cbind(1:nrow(seasonal_summary_FinRegistry),1)),
       options = list(autoWidth = TRUE,selection = 'none'))
   })
 
-  # output$FinnGen_table <- renderDataTable({
-  #   datatable(seasonal_summary_FinnGen,
-  #             selection = list(mode='single',target = 'cell',selectable=cbind(1:nrow(seasonal_summary_FinnGen),1)),
-  #             options = list(autoWidth = TRUE,selection = 'none'))
-  # })
-
-
-  output$search_endpoints <- renderUI({
-    endpoints=sort(unique(seasonal_summary_FinRegistry$ENDPOINT))
-    selectizeInput(
-      inputId = "endpoint",
-      label = "Search for endpoint",
-      multiple = FALSE,
-      choices = c("Search for endpoint" = "", endpoints),
-      selected=as.data.frame(seasonal_summary_FinRegistry)[clicked$endpoint_idx],
-      options = list(
-        create = FALSE,
-        placeholder = "Search for endpoint",
-        maxItems = '1',
-        onDropdownOpen = I("function($dropdown) {if (!this.lastQuery.length) {this.close(); this.settings.openOnFocus = false;}}"),
-        onType = I("function (str) {if (str === '') {this.close();}}")
-      ))
+  output$plot_diagnostics <- renderPlot({
+    if(!identical(clicked$endpoint,character(0))){
+      check(getViz(fit_gam()$mod_list$seasonal))
+    }
   })
 
   output$background <- renderUI({
-    withMathJax(HTML(markdown::markdownToHTML(knit('seasonal_patterns_endpoints.Rmd', quiet = TRUE)),fragment.only = T))
+    withMathJax(HTML(markdown::markdownToHTML(knit('background/seasonal_patterns_endpoints.Rmd', quiet = TRUE)),fragment.only = T))
   })
 
   observeEvent(input$binary_beta_b, {
@@ -445,37 +377,7 @@ server <- function(input, output, session) {
 
 
   output$binary_background_sim <- renderUI({
-    withMathJax(HTML(markdown::markdownToHTML(knit('binary_simulation_background.Rmd', quiet = TRUE)),fragment.only = T))
-  })
-
-  output$qt_plot_dist <- renderPlot({
-    mu_grid <- get_mu_grid(beta=c('g'=input$qt_beta_g,
-                                  'a'=input$qt_beta_a,
-                                  'ag'=input$qt_beta_ag,
-                                  'pg'=input$qt_beta_pg),phi=input$qt_phi,mod_type=input$qt_mod_type,P=12)
-    plot_mu_grid(mu_grid,mod_type=input$qt_mod_type,P=12) +
-    theme_custom
-  })
-
-  output$qt_sim_plot <- renderPlot({
-    beta=c('g'=input$qt_beta_g,
-           'a'=input$qt_beta_a,
-           'ag'=input$qt_beta_ag,
-           'pg'=input$qt_beta_pg)
-    sim_dat <- simulate_seasonal_qt(n=input$qt_n,beta=beta,phi=input$qt_phi,sigma=input$qt_sigma,MAF=input$qt_MAF,mod_type=input$qt_mod_type,P=12)
-    mu_grid <- get_mu_grid(beta=beta,phi=input$qt_phi,mod_type=input$qt_mod_type,P=12)
-    dat_plot <- plot_sim_dat(sim_dat=sim_dat,mu_grid=mu_grid,mod_type=input$qt_mod_type,P=12) + theme_custom
-
-    mod_gam <- run_seasonal_qt_gam(sim_dat,P=12)
-    seasonality_qt_plot <- plot_seasonality_qt(mod_gam,P=12) + theme_custom
-
-    sim_dat <- add_seasonal_values(sim_dat,mod_gam,P=12)
-    seasonal_summary <- run_seasonal_mod_qt(dat=sim_dat)
-    dat_plot + seasonality_qt_plot
-  })
-
-  output$qt_background_sim <- renderUI({
-    withMathJax(HTML(markdown::markdownToHTML(knit('qt_simulation_background.Rmd', quiet = TRUE)),fragment.only = T))
+    withMathJax(HTML(markdown::markdownToHTML(knit('background/binary_simulation_background.Rmd', quiet = TRUE)),fragment.only = T))
   })
 }
 
