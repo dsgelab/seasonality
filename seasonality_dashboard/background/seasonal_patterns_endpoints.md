@@ -6,12 +6,7 @@ output:
   html_document: default
 ---
 
-```{r setup, include=FALSE}
-library(dplyr)
-library(ggplot2)
-library(readr)
-knitr::opts_chunk$set(echo = TRUE)
-```
+
 ### Background
 The incidence of several diseases follows a seasonal pattern. Most famously, influenza hits in the autumn but winter peaks are also observed, among others, in cardiovascular disease and mood disorders (Altizer et al. 2006; Stewart et al. 2017; Garbazza and Benedetti 2018). Many factors could explain this pattern, availability of healthcare due to holidays, environmental conditions, genetic factors, demographic variables and more. Unwrapping the seasonal dependency in its full complexity and estimating the influence of each factor is therefore challenging. Despite its apparent importance, the genetic influence on the seasonal variation of disease has received little attention to the best of our knowledge. The reason for this could be that it requires high quality data, linking health registry and sequencing data, which until recently has not been available. The purpose of this project is to gain insight into the genetic influence on seasonal variation in disease and improve our understanding of the phenomenon. To achieve this, we leverage data from the Finnish health registry and Finnish genotype data to explore the effect of genetic mutations on the diagnosis time of different diseases. 
   
@@ -80,41 +75,11 @@ where $s^2_{t,s}$ is the estimated residual variance under a model with both a t
 
 When observing the endpoint count data, we noticed that there is a substantial dip in July for many of the endpoints, one that could be explained simply by holidays. This affects the resulting seasonal components in the models, reflecting in that a great majority of endpoint counts showed substantial seasonality:  
 
-```{r fig.align="center",echo=F,message=FALSE}
-seasonal_summary_FinnGen <- read.table('data/FINNGEN_seasonal_summary.txt',header=T) %>%
-                            as_tibble()
-seasonal_splines_FinRegistry <- read_tsv('data/FINREGISTRY_seasonal_splines.txt') %>%
-                                inner_join(select(seasonal_summary_FinnGen,ENDPOINT),by='ENDPOINT')
-
-
-ggplot(seasonal_splines_FinRegistry) +
-geom_line(aes(month,seasonal_val,group=ENDPOINT),alpha=0.1) +
-scale_x_continuous(expand=c(0,0),breaks=seq_len(12)) +
-theme_bw() +
-xlab('Month number') +
-ylab(expression(s[s](x))) +
-theme(axis.title.x = element_text(size=16),
-      axis.title.y = element_text(size=16),
-      axis.text.x = element_text(size=14),
-      axis.text.y = element_text(size=14))
-```
+<img src="figure/unnamed-chunk-1-1.png" title="plot of chunk unnamed-chunk-1" alt="plot of chunk unnamed-chunk-1" style="display: block; margin: auto;" />
    
 Since we are not interested in capturing the seasonality of healthcare availability, we attempt to adjust for this by using the median seasonal component, $M_s(x)$ from all endpoints as a linear covariate in our GAM. This component looks like this:
 
-```{r fig.align="center",echo=F}
-group_by(seasonal_splines_FinRegistry,month) %>%
-summarise(avg_seasonal_val=median(seasonal_val)) %>%
-ggplot() +
-geom_line(aes(month,avg_seasonal_val)) +
-scale_x_continuous(expand=c(0,0),breaks=seq_len(12)) +
-theme_bw() +
-xlab('Month number') +
-ylab(expression(M[s](x))) +
-theme(axis.title.x = element_text(size=16),
-      axis.title.y = element_text(size=16),
-      axis.text.x = element_text(size=14),
-      axis.text.y = element_text(size=14))
-```
+<img src="figure/unnamed-chunk-2-1.png" title="plot of chunk unnamed-chunk-2" alt="plot of chunk unnamed-chunk-2" style="display: block; margin: auto;" />
    
 Note the dip in the summer and the slight dip during christmas. Our adjusted model then models the mean in the Quasi-Poisson model as
 $$
