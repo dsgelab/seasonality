@@ -1,3 +1,4 @@
+### This script is run within the FinnGen sandbox
 library(data.table)
 library(lubridate)
 #Calculate birth date of each individual from detailed longitudinal data. Read first entry of each individual

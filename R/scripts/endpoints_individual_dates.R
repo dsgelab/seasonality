@@ -1,3 +1,4 @@
+### This script is run within the FinnGen sandbox
 library(data.table)
 library(lubridate)
 #Calculate birth date of each individual from detailed longitudinal data. Read first entry of each individual
@@ -7,7 +8,7 @@ birth_dates <- ymd(birth_dat$APPROX_EVENT_DAY)-dyears(birth_dat$EVENT_AGE)
 names(birth_dates) <- birth_dat$FINNGENID
 GWAS_info_dat <- fread('/finngen/library-green/finngen_R10/finngen_R10_analysis_data/finngen_R10_pheno_n.tsv')
 #restrict to case-control phenotypes with sufficiently many cases and some significant GWAS signal
-GWAS_info_dat <- GWAS_info_dat[num_gw_significant>1 & num_controls>0 & num_cases>10000,'phenocode']
+GWAS_info_dat <- GWAS_info_dat[num_gw_significant>0 & num_controls>0 & num_cases>5000,'phenocode']
 path_endpoint = '/finngen/library-red/finngen_R10/phenotype_1.0/data/finngen_R10_endpoint_longitudinal_1.0.txt.gz'
 con_endpoint = gzcon(file(path_endpoint,'rb'))
 col_names = unlist(strsplit(readLines(con_endpoint,n=1),split='\\t')) #read first line to extract col names
