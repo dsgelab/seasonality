@@ -1,5 +1,8 @@
+library(dplyr)
+library(mgcv)
+library(tidyr)
 library(broom)
-### DGP of disease endpoint seasonality
+### Proposed genetic seasonality density help functions #####
 
 dseasonal <- function(t,x_g,beta,phi,a,b){
   ifelse(t>=a & t<b,(1 + (beta[1]+beta[2]*x_g)*sin((2*pi/(b-a)) *(t-a) + phi)) / (b-a),0)
@@ -17,6 +20,129 @@ Sseasonal <- function(t,x_g,beta,phi,a,b){
   1-pseasonal(t,x_g,beta,phi,a,b)
 }
 
+#### Simulate data with genetic seasonality effect ####
+get_dist_grid <- function(beta,phi,mod_type='additive',a,b){
+  eps <- 1e-6
+  t <- seq(a,b-eps,by=0.01)
+  gt_mod <- 0:2
+  gt_lab <- 0:2
+  if(mod_type=='recessive'){
+    gt_lab <- gt_mod[1:2]
+    gt_mod <- gt_mod[1:2]
+  }else if(mod_type=='dominant'){
+    gt_lab <- gt_mod[c(1,3)]
+    gt_mod <- gt_mod[1:2]
+  }
+  surv_grid_gt <- lapply(1:length(gt_mod),function(i){
+    dens <- dseasonal(t,x_g=gt_mod[i],beta=beta,phi=phi,a=a,b=b)
+    cum_dens <- pseasonal(t,x_g=gt_mod[i],beta=beta,phi=phi,a=a,b=b)
+    surv <- Sseasonal(t,x_g=gt_mod[i],beta=beta,phi=phi,a=a,b=b)
+    tibble(t=t,gt_mod=gt_mod[i],gt_lab=gt_lab[i],dens=dens,cum_dens=cum_dens,surv=surv)
+  })
+  names(surv_grid_gt) <- gt_lab
+  return(surv_grid_gt)
+}
+
+
+simulate_seasonal_dist <- function(n,MAF,beta,phi,mod_type='additive',a,b){
+  dist_grid_gt <- get_dist_grid(beta=beta,phi=phi,mod_type=mod_type,a=a,b=b)
+  gt_mod <- rbinom(n,size=2,prob=MAF)
+  gt_lab <- gt_mod
+  if(mod_type=='recessive'){
+    gt_lab <- as.integer(gt_mod>0)
+    gt_mod <- gt_lab
+  }else if(mod_type=='dominant'){
+    gt_lab <- 2*as.integer(gt_mod>1)
+    gt_mod <- as.integer(gt_mod>1)
+  }
+  u <- runif(n)
+  event_month_dec <- vector('numeric',n)
+  for(i in 1:n){
+    gt_name <- as.character(gt_lab[i])
+    event_month_dec[i] <- dist_grid_gt[[gt_name]]$t[which.min(abs(dist_grid_gt[[gt_name]]$surv-u[i]))]
+  }
+  return(tibble(gt_mod=gt_mod,gt_lab=gt_lab,EVENT_MONTH_DEC=event_month_dec,surv=u))
+}
+
+perturb_surv_times <- function(surv_times,mu,sigma,a,b){
+  n <- length(surv_times)
+  diagnosis_lag <- rgamma(n,shape=(mu/sigma)^2,rate=mu/sigma^2)
+  anonymization_perturb <- sample(seq_len(15),size = n,replace=T)/28 #convert to months
+  anonymization_perturb <- ifelse(runif(n)<0.5,-1*anonymization_perturb,anonymization_perturb)
+  surv_times_perturb <- (surv_times+diagnosis_lag+anonymization_perturb - a) %% (b-a) + a
+  return(surv_times_perturb)
+}
+
+#### Seasonality GAM on simulated data  ####
+run_seasonality_gam_sim <- function(dat,a,b){
+  k_seasonal <- 6
+  f_seasonal <- 'count ~ s(EVENT_MONTH, k=k_seasonal, bs="cp")'
+  mod_seasonal <- gam(as.formula(f_seasonal), family=quasipoisson(), data=dat, knots=list(EVENT_MONTH = c(a-0.5, b-0.5)), scale=-1)
+  return(mod_seasonal)
+}
+
+get_seasonal_phenotype <- function(pheno_dat,endpoint_id,seasonal_spline,a,b){
+  pheno_dat[,endpoint_id,drop=T] <- ifelse(pheno_dat[,endpoint_id,drop=T]>(b-0.5),pheno_dat[,endpoint_id,drop=T]-(b-a),pheno_dat[,endpoint_id,drop=T])
+  seasonal_pheno_dat <- mutate(pheno_dat,
+                               seasonal_val=approx(x=seasonal_spline$month,
+                                                   y=seasonal_spline$seasonal_val,
+                                                   xout=pheno_dat[,endpoint_id,drop=T])$y,
+                               seasonal_val_qt=qnorm(rank(seasonal_val)/(n()+0.5)),
+                               seasonal_val_binary=as.integer(seasonal_val > 0))
+  return(seasonal_pheno_dat)
+}
+
+run_seasonal_models <- function(monthly_counts,pheno_dat,endpoint_id,a,b){
+  mod_dat <- filter(monthly_counts,ENDPOINT==endpoint_id)
+  mod_counts <- run_seasonality_gam_sim(mod_dat,a=a,b=b)
+  months_vec <- seq(a-0.5,b-0.5,by=0.01)
+  seasonal_pred <- predict(mod_counts,newdata=data.frame(EVENT_MONTH=months_vec),type='terms')[,'s(EVENT_MONTH)']
+  seasonal_spline <- tibble(month=months_vec,seasonal_val=seasonal_pred)
+  seasonal_pheno <- get_seasonal_phenotype(pheno_dat=pheno_dat,endpoint_id=endpoint_id,seasonal_spline = seasonal_spline,a=a,b=b) %>%
+                    mutate(seasonal_val_01=(seasonal_val-min(seasonal_val))/(max(seasonal_val)-min(seasonal_val)))
+  binary_mod <- glm(seasonal_val_binary ~ gt_mod,data=seasonal_pheno,family='binomial')
+  qt_raw_mod <- lm(seasonal_val_01 ~ gt_mod,data=seasonal_pheno)
+  qt_mod <- lm(seasonal_val_qt ~ gt_mod,data=seasonal_pheno)
+  return(list(seasonal_pheno=seasonal_pheno,binary_mod=binary_mod,qt_raw_mod=qt_raw_mod,qt_mod=qt_mod))
+}
+
+
+sim_pipeline <- function(n,MAF,beta,phi,mod_type='additive',a,b,mu_lag,sigma_lag){
+  sim_dat <- simulate_seasonal_dist(n=n,MAF=MAF,beta=beta,phi=phi,mod_type=mod_type,a=a,b=b)
+  sim_dat$EVENT_MONTH_DEC_PB <- perturb_surv_times(surv_times=sim_dat$EVENT_MONTH_DEC,mu=mu_lag,sigma=sigma_lag,a=a,b=b)
+  monthly_counts <- mutate(sim_dat,month=floor(EVENT_MONTH_DEC),
+                           month_pb=floor(EVENT_MONTH_DEC_PB)) %>%
+                    pivot_longer(cols=c('month','month_pb'),names_to = 'ENDPOINT',values_to = 'EVENT_MONTH') %>%
+                    group_by(ENDPOINT,EVENT_MONTH) %>%
+                    summarise(count=length(EVENT_MONTH),.groups='drop') %>%
+                    mutate(ENDPOINT=as.character(factor(ENDPOINT,levels=c('month','month_pb'),
+                                                        labels=c('EVENT_MONTH_DEC','EVENT_MONTH_DEC_PB'))),
+                           ENDPOINT_LAB=as.character(factor(ENDPOINT,levels=c('EVENT_MONTH_DEC','EVENT_MONTH_DEC_PB'),
+                                                        labels=c('True disease onset','Perturbed disease diagnosis'))))
+  seasonal_mods <- run_seasonal_models(monthly_counts,sim_dat,endpoint_id='EVENT_MONTH_DEC',a=a,b=b)
+  seasonal_mods_pb <- run_seasonal_models(monthly_counts,sim_dat,endpoint_id='EVENT_MONTH_DEC_PB',a=a,b=b)
+  mod <- c('binary_mod','qt_raw_mod','qt_mod')
+  mod_summary <- lapply(mod,function(m){
+    bind_rows(tidy(seasonal_mods[[m]]) %>% mutate(perturbed=F),
+              tidy(seasonal_mods_pb[[m]]) %>% mutate(perturbed=T)) %>%
+    mutate(mod=m) %>% filter(term=='gt_mod') %>% select(-term)
+  }) %>% bind_rows()
+  return(list(sim_dat=sim_dat,mod_summary=mod_summary))
+}
+
+get_seasonal_comp <- function(dat,mod_gam,a,b){
+  months_vec <- seq(a-0.5,b-0.5,by=0.1)
+  seasonal_pred <- predict(mod_gam,newdata=get_grid(type='seasonal',seasonal_spline_avg=NULL),type='terms',unconditional=T,se.fit=T)
+  seasonal_pred_dat <- tibble(month=months_vec,
+                              est=seasonal_pred$fit[,'s(EVENT_MONTH)'],
+                              lower=est - 1.96*seasonal_pred$se.fit[,'s(EVENT_MONTH)'],
+                              upper=est + 1.96*seasonal_pred$se.fit[,'s(EVENT_MONTH)'])
+  return(seasonal_pred_dat)
+}
+
+
+
+##### Statistical inference of genetic seasonality density ####
 logit <- function(x){
   log(x/(1-x))
 }
@@ -79,141 +205,7 @@ seasonal_mod <- function(t,x_g,mod_type='additive',a,b){
   return(mod_summary)
 }
 
-get_dist_grid <- function(beta,phi,mod_type='additive',a,b){
-  eps <- 1e-6
-  t <- seq(a,b-eps,by=0.01)
-  gt_mod <- 0:2
-  gt_lab <- 0:2
-  if(mod_type=='recessive'){
-    gt_lab <- gt_mod[1:2]
-    gt_mod <- gt_mod[1:2]
-  }else if(mod_type=='dominant'){
-    gt_lab <- gt_mod[c(1,3)]
-    gt_mod <- gt_mod[1:2]
-  }
-  surv_grid_gt <- lapply(1:length(gt_mod),function(i){
-    dens <- dseasonal(t,x_g=gt_mod[i],beta=beta,phi=phi,a=a,b=b)
-    cum_dens <- pseasonal(t,x_g=gt_mod[i],beta=beta,phi=phi,a=a,b=b)
-    surv <- Sseasonal(t,x_g=gt_mod[i],beta=beta,phi=phi,a=a,b=b)
-    tibble(t=t,gt_mod=gt_mod[i],gt_lab=gt_lab[i],dens=dens,cum_dens=cum_dens,surv=surv)
-  })
-  names(surv_grid_gt) <- gt_lab
-  return(surv_grid_gt)
-}
-
-
-simulate_seasonal_dist <- function(n,MAF,beta,phi,mod_type='additive',a,b){
-  dist_grid_gt <- get_dist_grid(beta=beta,phi=phi,mod_type=mod_type,a=a,b=b)
-  gt_mod <- rbinom(n,size=2,prob=MAF)
-  gt_lab <- gt_mod
-  if(mod_type=='recessive'){
-    gt_lab <- as.integer(gt_mod>0)
-    gt_mod <- gt_lab
-  }else if(mod_type=='dominant'){
-    gt_lab <- 2*as.integer(gt_mod>1)
-    gt_mod <- as.integer(gt_mod>1)
-  }
-  u <- runif(n)
-  event_month_dec <- vector('numeric',n)
-  for(i in 1:n){
-    gt_name <- as.character(gt_lab[i])
-    event_month_dec[i] <- dist_grid_gt[[gt_name]]$t[which.min(abs(dist_grid_gt[[gt_name]]$surv-u[i]))]
-  }
-  return(tibble(gt_mod=gt_mod,gt_lab=gt_lab,EVENT_MONTH_DEC=event_month_dec,surv=u))
-}
-
-perturb_surv_times <- function(surv_times,mu,sigma,a,b){
-  n <- length(surv_times)
-  diagnosis_lag <- rgamma(n,shape=(mu/sigma)^2,rate=mu/sigma^2)
-  anonymization_perturb <- sample(seq_len(15),size = n,replace=T)/28 #convert to months
-  anonymization_perturb <- ifelse(runif(n)<0.5,-1*anonymization_perturb,anonymization_perturb)
-  surv_times_perturb <- (surv_times+diagnosis_lag+anonymization_perturb - a) %% (b-a) + a
-  return(surv_times_perturb)
-}
-
-run_seasonality_gam_sim <- function(dat,a,b){
-  k_seasonal <- 6
-  f_seasonal <- 'count ~ s(EVENT_MONTH, k=k_seasonal, bs="cp")'
-  mod_seasonal <- gam(as.formula(f_seasonal), family=quasipoisson(), data=dat, knots=list(EVENT_MONTH = c(a-0.5, b-0.5)), scale=-1)
-  return(mod_seasonal)
-}
-
-get_seasonal_phenotype <- function(pheno_dat,endpoint_id,seasonal_spline,a,b){
-  pheno_dat[,endpoint_id,drop=T] <- ifelse(pheno_dat[,endpoint_id,drop=T]>(b-0.5),pheno_dat[,endpoint_id,drop=T]-(b-a),pheno_dat[,endpoint_id,drop=T])
-  seasonal_pheno_dat <- mutate(pheno_dat,
-                               seasonal_val=approx(x=seasonal_spline$month,
-                                                   y=seasonal_spline$seasonal_val,
-                                                   xout=pheno_dat[,endpoint_id,drop=T])$y,
-                               seasonal_val_qt=qnorm(rank(seasonal_val)/(n()+0.5)),
-                               seasonal_val_binary=as.integer(seasonal_val > 0))
-  return(seasonal_pheno_dat)
-}
-
-run_seasonal_models <- function(monthly_counts,pheno_dat,endpoint_id,a,b){
-  mod_dat <- filter(monthly_counts,ENDPOINT==endpoint_id)
-  mod_counts <- run_seasonality_gam_sim(mod_dat,a=a,b=b)
-  months_vec <- seq(a-0.5,b-0.5,by=0.01)
-  seasonal_pred <- predict(mod_counts,newdata=data.frame(EVENT_MONTH=months_vec),type='terms')[,'s(EVENT_MONTH)']
-  seasonal_spline <- tibble(month=months_vec,seasonal_val=seasonal_pred)
-  seasonal_pheno <- get_seasonal_phenotype(pheno_dat=pheno_dat,endpoint_id=endpoint_id,seasonal_spline = seasonal_spline,a=a,b=b) %>%
-                    mutate(seasonal_val_01=(seasonal_val-min(seasonal_val))/(max(seasonal_val)-min(seasonal_val)))
-  binary_mod <- glm(seasonal_val_binary ~ gt_mod,data=seasonal_pheno,family='binomial')
-  qt_raw_mod <- lm(seasonal_val_01 ~ gt_mod,data=seasonal_pheno)
-  qt_mod <- lm(seasonal_val_qt ~ gt_mod,data=seasonal_pheno)
-  return(list(seasonal_pheno=seasonal_pheno,binary_mod=binary_mod,qt_raw_mod=qt_raw_mod,qt_mod=qt_mod))
-}
-
-
-sim_pipeline <- function(n,MAF,beta,phi,mod_type='additive',a,b,mu_lag,sigma_lag){
-  sim_dat <- simulate_seasonal_dist(n=n,MAF=MAF,beta=beta,phi=phi,mod_type=mod_type,a=a,b=b)
-  sim_dat$EVENT_MONTH_DEC_PB <- perturb_surv_times(surv_times=sim_dat$EVENT_MONTH_DEC,mu=mu_lag,sigma=sigma_lag,a=a,b=b)
-  monthly_counts <- mutate(sim_dat,month=floor(EVENT_MONTH_DEC),
-                           month_pb=floor(EVENT_MONTH_DEC_PB)) %>%
-                    pivot_longer(cols=c('month','month_pb'),names_to = 'ENDPOINT',values_to = 'EVENT_MONTH') %>%
-                    group_by(ENDPOINT,EVENT_MONTH) %>%
-                    summarise(count=length(EVENT_MONTH),.groups='drop') %>%
-                    mutate(ENDPOINT=as.character(factor(ENDPOINT,levels=c('month','month_pb'),
-                                                        labels=c('EVENT_MONTH_DEC','EVENT_MONTH_DEC_PB'))),
-                           ENDPOINT_LAB=as.character(factor(ENDPOINT,levels=c('EVENT_MONTH_DEC','EVENT_MONTH_DEC_PB'),
-                                                        labels=c('True disease onset','Perturbed disease diagnosis'))))
-  seasonal_mods <- run_seasonal_models(monthly_counts,sim_dat,endpoint_id='EVENT_MONTH_DEC',a=a,b=b)
-  seasonal_mods_pb <- run_seasonal_models(monthly_counts,sim_dat,endpoint_id='EVENT_MONTH_DEC_PB',a=a,b=b)
-  mod <- c('binary_mod','qt_raw_mod','qt_mod')
-  mod_summary <- lapply(mod,function(m){
-    bind_rows(tidy(seasonal_mods[[m]]) %>% mutate(perturbed=F),
-              tidy(seasonal_mods_pb[[m]]) %>% mutate(perturbed=T)) %>%
-    mutate(mod=m) %>% filter(term=='gt_mod') %>% select(-term)
-  }) %>% bind_rows()
-  return(list(sim_dat=sim_dat,mod_summary=mod_summary))
-}
-
-plot_surv_grid_panel <- function(surv_grid){
-  ggplot(surv_grid,aes(t,value,col=as.factor(gt))) +
-    geom_line(size=1) +
-    facet_wrap(sim~name,ncol=2,scales='free') +
-    scale_x_continuous(breaks=seq_len(12)) +
-    scale_color_manual(values=c("#BC3C29FF","#0072B5FF","#E18727FF"),name='Genotype') +
-    xlab('Month') +
-    ylab('Log hazard (left panel) and Survival (right panel)') +
-    theme_classic() +
-    theme(strip.background = element_blank(),
-          strip.text.x = element_blank(),
-          strip.text.y = element_blank())
-}
-
-get_seasonal_comp <- function(dat,mod_gam,a,b){
-  months_vec <- seq(a-0.5,b-0.5,by=0.1)
-  seasonal_pred <- predict(mod_gam,newdata=get_grid(dat,type='seasonal',seasonal_spline_avg=NULL),type='terms',se.fit=T)
-  seasonal_pred_dat <- tibble(month=months_vec,
-                              est=seasonal_pred$fit[,'s(EVENT_MONTH)'],
-                              lower=est - 1.96*seasonal_pred$se.fit[,'s(EVENT_MONTH)'],
-                              upper=est + 1.96*seasonal_pred$se.fit[,'s(EVENT_MONTH)'])
-  return(seasonal_pred_dat)
-}
-
-
-
-## Plots
+######  Plots #####
 seasonality_plot_sim <- function(seasonal_pred_dat,a,b){
   ggplot(seasonal_pred_dat) +
     geom_line(aes(x=month,
@@ -221,17 +213,13 @@ seasonality_plot_sim <- function(seasonal_pred_dat,a,b){
                   col=ENDPOINT_LAB)) +
     geom_ribbon(aes(x=month,ymin=lower,ymax=upper,fill=ENDPOINT_LAB),alpha=0.3) +
     geom_hline(yintercept=0,linetype='dashed',color='red') +
-    scale_x_continuous(breaks=seq(a,b)) +
+    scale_x_continuous(breaks=seq(a,b-1)) +
     scale_fill_manual(values=c("#0072B5FF","#E18727FF"),name='') +
     scale_color_manual(values=c("#0072B5FF","#E18727FF"),name='') +
     xlab('Month number') +
     ylab('Smooth term') +
     ggtitle('Seasonal component') +
-    theme_bw() +
-    theme(axis.title.x=element_text(size=14),
-          axis.text.x=element_text(size=14),
-          axis.title.y=element_text(size=14),
-          axis.text.y=element_text(size=14))
+    theme_bw()
 }
 
 
@@ -254,4 +242,29 @@ KM_gg <- function(survfit_obj,title=''){
     theme(legend.position=c(0.8,0.8))
 }
 
-### DGP for
+seasonal_density_plot <- function(beta_b,beta_ag,phi,mod_type,a,b){
+  dist_grid <- get_dist_grid(beta=c(beta_b,beta_ag),phi=phi,mod_type='additive',a=a,b=b) %>% bind_rows()
+  ggplot(dist_grid,aes(t,dens,col=as.factor(gt_lab))) +
+    geom_line(size=1) +
+    scale_x_continuous(breaks=seq_len(12),expand=c(0,0.2)) +
+    scale_y_continuous(limits=c(0,2/12)) +
+    scale_color_manual(values=cols,name='Genotype') +
+    xlab('Month number ') +
+    ylab('Density') +
+    theme_classic() +
+    theme(legend.position='none')
+}
+
+# plot_surv_grid_panel <- function(surv_grid){
+#   ggplot(surv_grid,aes(t,value,col=as.factor(gt))) +
+#     geom_line(size=1) +
+#     facet_wrap(sim~name,ncol=2,scales='free') +
+#     scale_x_continuous(breaks=seq_len(12)) +
+#     scale_color_manual(values=c("#BC3C29FF","#0072B5FF","#E18727FF"),name='Genotype') +
+#     xlab('Month') +
+#     ylab('Log hazard (left panel) and Survival (right panel)') +
+#     theme_classic() +
+#     theme(strip.background = element_blank(),
+#           strip.text.x = element_blank(),
+#           strip.text.y = element_blank())
+# }
