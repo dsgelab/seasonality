@@ -255,7 +255,7 @@ server <- function(input, output, session) {
     }
     dist_grid <- get_dist_grid(beta=c(input$binary_beta_b,input$binary_beta_g),phi=input$binary_phi,mod_type=input$binary_mod_type,a=a,b=b) %>% bind_rows()
     dens_plot <- ggplot(dist_grid,aes(t,dens,col=as.factor(gt_lab))) +
-      geom_line(size=1) +
+      geom_line(linewidth=1) +
       scale_x_continuous(breaks=seq_len(12),expand=c(0,0.2)) +
       scale_y_continuous(limits=c(0,2/12)) +
       scale_color_manual(values=cols,name='Genotype') +
@@ -266,7 +266,7 @@ server <- function(input, output, session) {
     theme(legend.position='none')
 
     surv_plot <- ggplot(dist_grid,aes(t,surv,col=as.factor(gt_lab))) +
-      geom_line(size=1) +
+      geom_line(linewidth=1) +
       scale_x_continuous(breaks=seq_len(12),expand=c(0,0.2)) +
       scale_y_continuous(limits=c(0,1)) +
       scale_color_manual(values=cols,name='Genotype') +
@@ -283,7 +283,7 @@ server <- function(input, output, session) {
     sigma_lag <- sqrt(mu_lag)
     dist_grid <- tibble(t=seq(0,12,by=0.01),dens=dgamma(t,shape=(mu_lag/sigma_lag)^2,rate=mu_lag/sigma_lag^2))
     lag_plot <- ggplot(dist_grid,aes(t,dens)) +
-      geom_line(size=1,col="black") +
+      geom_line(linewidth=1,col="black") +
       ggtitle('Assumed diagnosis lag distribution') +
       xlab('Time (in months)') +
       ylab('Density') +
