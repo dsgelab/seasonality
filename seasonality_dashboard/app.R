@@ -92,7 +92,8 @@ ui <- shinyUI(fluidPage(
                               dashboardSidebar(width=300,
                                 sidebarMenu(
                                   menuItem("Endpoint seasonality - FinRegistry", tabName = "finregistry", icon = icon("chart-bar")),
-                                  menuItem("Simulating underlying process", tabName = "binary_simulation", icon = icon("chart-line"))
+                                  menuItem("Simulating underlying process", tabName = "binary_simulation", icon = icon("chart-line")),
+                                  menuItem("Background of the project", tabName = "background", icon = icon("book"))
                                 )
                               ),
                               dashboardBody(
@@ -172,7 +173,10 @@ ui <- shinyUI(fluidPage(
 
                                                         ),
                                                       )
-                                                    )
+                                                    ),
+                                              tabItem(tabName="background", width=NULL,
+                                                      uiOutput('background_project')
+                                              )
                                             )
                               )
                 )
@@ -221,7 +225,7 @@ server <- function(input, output, session) {
   })
 
   output$background <- renderUI({
-    withMathJax(HTML(markdown::markdownToHTML(knit('background/seasonal_patterns_endpoints.Rmd', quiet = TRUE)),fragment.only = T))
+    withMathJax(HTML(markdown::markdownToHTML(knit('background/seasonal_patterns_endpoints.Rmd', quiet = TRUE))))
   })
 
   observeEvent(input$binary_beta_b, {
@@ -376,7 +380,11 @@ server <- function(input, output, session) {
 
 
   output$binary_background_sim <- renderUI({
-    withMathJax(HTML(markdown::markdownToHTML(knit('background/binary_simulation_background.Rmd', quiet = TRUE)),fragment.only = T))
+    withMathJax(HTML(markdown::markdownToHTML(knit('background/binary_simulation_background.Rmd', quiet = TRUE))))
+  })
+
+  output$background_project <- renderUI({
+    withMathJax(HTML(markdown::markdownToHTML(knit('background/background_project.Rmd', quiet = TRUE))))
   })
 }
 

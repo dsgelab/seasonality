@@ -209,7 +209,7 @@ compare_gam_fits <- function(mod_list,monthly_counts,endpoint,adjustment=''){
                                 ymax=max(monthly_counts$COUNT),
                                 fill=season),alpha=0.1) +
   scale_y_continuous(expand=c(0.01,0)) +
-  scale_x_date(expand=c(0.005,0),date_breaks='1 year',date_labels='%Y') +
+  scale_x_date(expand=c(0.005,0),date_breaks='2 years',date_labels='%Y') +
   scale_fill_manual(values=c('gold3','turquoise')) +
   xlab(paste0('First diagnosis of: ',endpoint)) +
   ylab('Count') +
