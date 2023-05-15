@@ -1,7 +1,7 @@
 ---
-title: "Seasonal pattern of endpoints in FinRegistry"
+title: "Seasonality of clinical endpoints in FinRegistry"
 author: "Sölvi Rögnvaldsson"
-date: "2023-01-16"
+date: "May 16th 2023"
 output:
   html_document: default
 ---
@@ -12,110 +12,83 @@ library(ggplot2)
 library(readr)
 knitr::opts_chunk$set(echo = TRUE)
 ```
-### Background
-The incidence of several diseases follows a seasonal pattern. Most famously, influenza hits in the autumn but winter peaks are also observed, among others, in cardiovascular disease and mood disorders (Altizer et al. 2006; Stewart et al. 2017; Garbazza and Benedetti 2018). Many factors could explain this pattern, availability of healthcare due to holidays, environmental conditions, genetic factors, demographic variables and more. Unwrapping the seasonal dependency in its full complexity and estimating the influence of each factor is therefore challenging. Despite its apparent importance, the genetic influence on the seasonal variation of disease has received little attention to the best of our knowledge. The reason for this could be that it requires high quality data, linking health registry and sequencing data, which until recently has not been available. The purpose of this project is to gain insight into the genetic influence on seasonal variation in disease and improve our understanding of the phenomenon. To achieve this, we leverage data from the Finnish health registry and Finnish genotype data to explore the effect of genetic mutations on the diagnosis time of different diseases. 
-  
-### Data used and filtering
-In this dashboard we aim to describe the seasonality of disease endpoints in the FinRegistry data set. To determine which endpoints to analyze we used the following filtering criteria:
+## Introduction and data
+This dashboard presents the results from  a seasonality study analyzing the seasonal patterns in 1,759 clinical endpoints in the Finnish population. Longitudinal data from the FinRegistry project was utilized to collect monthly counts of the first diagnosis of each endpoint between 1998 and 2019 ([https://www.finregistry.fi/](https://www.finregistry.fi/)). Some filtering was done on the data. 
 
-  * Endpoint has at least 1 significant GWAS loci in the FinnGen dataset.
-  * The total number of cases diagnosed in summer and winter is sufficiently large in the FinnGen dataset. The cutoff value used here is 200.   
-  
-Monthly endpoint counts were gathered in FinRegsitry and the extent of seasonality evaluated using a statistical model. The modeling approach is inspired by Madaniyazi et al.
+  * Endpoint was required to be recorded in both FinRegistry and FinnGen study
+  * At least one diagnosis in each of the years in FinRegistry
+  * Endpoint related to external causes of morbidity and uncategorized endpoints were excluded (as determined by the FinnGen endpoint classification at ([https://www.finngen.fi/en/researchers/clinical-endpoints](https://www.finngen.fi/en/researchers/clinical-endpoints))
 
-### Model definition
-For each disease we have a time series 
-$$(x_{y,m})_{y\in\{1998,...,2019\},m \in \{January,...,December\}}$$
-where $x_{y,t}$ is the number of first disease endpoints in a particular month in a particular year. The aim is to extract the annual trend and seasonal trend from the time series. Since we are dealing with counts, we assume they come from a modified Poisson distribution
+## Model definition
+The modeling approach is inspired by Madaniyazi et al. (2022). For each disease we have a time series 
+$$(y_{k,m})_{k\in\{1998,...,2019\},\ m \in \{January,...,December\}}$$
+where $y_{k,m}$ is the number of first disease endpoints in a particular month in a particular year. The aim is to extract the annual trend and seasonal trend from the time series. Since we are dealing with counts, we assume they come from a overdispersed Poisson model family
 $$
-x_{y,m} \sim \text{quasi-poisson}(30\mu,\theta)
+x_{y,m} \sim \text{quasi-poisson}(\mu,\theta)
 $$
-Quasi-Poission is used as it can account for over- or underdispersion, $\theta$, in the count data. In particular, the variance is assumed to be proportional to $\theta$
+Quasi-Poission is used as it can account for over- or underdispersion in the count data. In particular, the variance is assumed to be proportional to $\mu$
 $$
-Var(x_{y,m}) = \theta \mu
+\text{Var}(x_{y,m}) = \theta \mu
 $$
 
-and thus $\theta >0$ implies overdispersion while $\theta<0$ implies underdispersion. The mean $\mu$ is the daily mean count, which we parametrize in the following way
+and thus $\theta >1$ implies overdispersion while $\theta<1$ implies underdispersion. The mean $\mu$ is the daily mean count, which we parametrize in the following way
 $$
-\log(\mu) = \alpha + s_t(y) + s_s(m)
+\log(\mu_{k,m}) = log(N_m)+\alpha + s_a(k) + s_s(m)
 $$
-where $\alpha$ is the intercept term,  $s_t$ is a smooth function corresponding to the annual trend and $s_s$ is a smooth function corresponding to the seasonal trend. The smooths are a linear combination of B-spline basis functions with discrete penalization terms on the spline coefficients (called p-splines). The seasonal spline has the additional constraint that it is cyclical, i.e. splines for end of December beginning of January should continuously coincide. This type of model is called a Generalized additive model (GAM).
-### Seasonality metrics
-The metrics used to assess the extent of seasonality are the following   
-#### Extreme values at peak and trough
-One approach is to evaluate the effect of seasonality at the peak and trough of the cyclical spline function $s_s(m)$. Exponentiation of these values gives the multiplicative effect of seasonality on the mean $\mu$. We therefore calculate the values 
-$$
-x_p = \max_{m \in \{1,...,12\}} exp(s_s(m))
-$$
-and   
-$$
-x_t = \min_{m \in \{1,...,12\}} exp(s_s(m))
-$$
+where $N_m$ is the total number of days in month $m$, $\alpha$ is the intercept term,  $s_a$ is a smooth function corresponding to the annual trend and $s_s$ is a smooth function corresponding to the seasonal trend. The smooth terms are a linear combination of B-spline basis functions with discrete penalization terms on the spline coefficients (called p-splines). The seasonal spline has the additional constraint that it is cyclical, i.e. splines for end of December beginning of January should continuously coincide. This type of model is called a Generalized additive model (GAM).   
 
-\end{align*}
-where $p$ and $t$ stand for peak and trough, respectively.   
+The determine whether the seasonal smooth term is significantly different from the zero function, a joint hypothesis test on the spline coefficients presented by Wood et al. (2014) was used. The peak-to-trough ratio (PTR) is a useful metric to characterize the extent of seasonality. It is the ratio between the peak and trough value of the seasonal smooth term, namely
 
-#### Peak-to-Trough ratio
-As the name suggests the peak-to-trough ratio is the ratio between $x_p$ and $x_t$, i.e.
 $$
-PTR=\frac{x_p}{x_t} =\frac{\max_{m \in \{1,...,12\}} exp(s_s(m))}{\min_{m \in \{1,...,12\}} exp(s_s(m))}
+\text{PTR}=\frac{\max_{x \in [1,13)} \exp(s_s(m))}{\min_{x \in [1,13)} \exp(s_s(m))}
+$$
+To obtain bounds on PTR as well as the the peak time and trough time, a Monte Carlo simulation was performed. In each iteration of the simulation, spline coefficients were sampled from their posterior distribution, and the PTR and peak and trough times calculated from the induced seasonal smooth term. The 2.5\% and 97.5\% quantiles from the simulation were then taken to be 95\% posterior intervals for the different metrics 
+
+## Adjusting for seasonal behaviour
+When extracting the seasonal patterns for non-acute endpoints, it cannot be avoided that certain seasonal behavioral pattern will be captured in the process. Namely, that people in Finland tend to take vacations in the summer and spend time with family during the Christmas period, which can impact hospital activity and hence leading to fewer disease diagnosis of non-acute endpoints. Since this type of seasonality is not necessarily of interest, an attempt was made to adjust for such seasonal behavior when fitting the GAM. In the same spirit as Madaniyazi et al. (2022), three approaches were developed and will briefly be explained below.
+
+### Binary covariates for July and December
+The first approach simply adds two binary covariates to the mean structure, indicating whether month $m$ is July or December, respectively. Namely, functions $f_j$ and $f_d$ were defined such that
+$$
+    f_j(m) = \begin{cases} 1 & \text{if m=July} \\
+                           0 & \text{otherwise} 
+             \end{cases}
 $$
 
+$$
+    f_d(m) = \begin{cases} 1 & \text{if m=December} \\
+                           0 & \text{otherwise} 
+             \end{cases}
+$$
+The two covariates were then added to the mean structure of the GAM
+$$
+        \log(\mu_{k,m}) = \log(N_m) + \alpha + s_a(k) + s_s(m) + \gamma_j f_j(m) + \gamma_d f_d(m)
+$$
+where $\gamma_j$ and $\gamma_d$ are parameters specifically accounting for counts in July and December, respectively.  
 
-### Adjusting for mean seasonal pattern
-
-When observing the endpoint count data, we noticed that there is a substantial dip in July for many of the endpoints, one that could be explained simply by holidays. This affects the resulting seasonal components in the models, reflecting in that a great majority of endpoint counts showed substantial seasonality:  
-
-```{r fig.align="center",echo=F,message=FALSE}
-seasonal_summary_FinnGen <- read.table('data/FINNGEN_seasonal_summary.txt',header=T) %>%
-                            as_tibble()
-seasonal_splines_FinRegistry <- read_tsv('data/FINREGISTRY_seasonal_splines.txt') %>%
-                                inner_join(select(seasonal_summary_FinnGen,ENDPOINT),by='ENDPOINT')
-
-
-ggplot(seasonal_splines_FinRegistry) +
-geom_line(aes(month,seasonal_val,group=ENDPOINT),alpha=0.1) +
-scale_x_continuous(expand=c(0,0),breaks=seq_len(12)) +
-theme_bw() +
-xlab('Month number') +
-ylab(expression(s[s](x))) +
-theme(axis.title.x = element_text(size=16),
-      axis.title.y = element_text(size=16),
-      axis.text.x = element_text(size=14),
-      axis.text.y = element_text(size=14))
-```
+### Normalizing by mean seasonal curve
+The second approach was to fit an unadjusted GAM on the whole set of endpoints and then assume that the mean seasonal curve reflects seasonal behavior. Formally, the mean seasonal smooth  term $\bar{s}_{s}$ was calculated in the following way
+$$
+   \bar{s}_s(x) = \frac{1}{K}\sum_{i=1}^K s_{s,i}(x) \label{eq:avg_seasonal_comp}
+$$
+where $K$ is the total number of endpoints considered and $s_{s,i}(x)$ is the seasonal smooth term for endpoint $i$. The mean seasonal smooth term at each month was then added as an offset to the mean structure in the GAM to act as a normalizing factor
+$$
+        \log(\mu_{k,m}) = \log(N_m) + \bar{s}_s(m) + \alpha + s_a(k) + s_s(m) 
+$$
    
-Since we are not interested in capturing the seasonality of healthcare availability, we attempt to adjust for this by using the median seasonal component, $M_s(x)$ from all endpoints as a linear covariate in our GAM. This component looks like this:
-
-```{r fig.align="center",echo=F}
-group_by(seasonal_splines_FinRegistry,month) %>%
-summarise(avg_seasonal_val=median(seasonal_val)) %>%
-ggplot() +
-geom_line(aes(month,avg_seasonal_val)) +
-scale_x_continuous(expand=c(0,0),breaks=seq_len(12)) +
-theme_bw() +
-xlab('Month number') +
-ylab(expression(M[s](x))) +
-theme(axis.title.x = element_text(size=16),
-      axis.title.y = element_text(size=16),
-      axis.text.x = element_text(size=14),
-      axis.text.y = element_text(size=14))
-```
-   
-Note the dip in the summer and the slight dip during christmas. Our adjusted model then models the mean in the Quasi-Poisson model as
+### Mean seasonal curve as a covariate
+The third approach involves adjusting for the mean seasonal curve as a linear covariate in the mean structure of the GAM, allowing the normalization to be vary between different endpoints
 $$
-log(\mu) = \alpha + \beta M_s(m)  +s_t(y) + s_s(m)
+        \log(\mu_{k,m}) = \log(N_m) + \alpha + s_a(k) + s_s(m) + \gamma\bar{s}_s(m)
 $$
-Note that $M_s(m)$ is fixed and not to be estimated.
+where $\gamma$ is parameter reflecting the extent to which the mean seasonal component is accounted for. 
 
 ## References
-Altizer S, Dobson A, Hosseini P, Hudson P, Pascual M, and Rohani P. 2006. 'Seasonality and the Dynamics of Infectious Diseases'. *Ecology Letters* 9 (4): 467–84. https://doi.org/10.1111/j.1461-0248.2005.00879.x.   
 
-Madaniyazi L and Tobias A and Kim Y, Chung Y, Armstrong B, Hashizume  M. 2022. 'Assessing seasonality and the role of its potential drivers in environmental epidemiology: a tutorial'. *International Journal of Epidemiology* 51 (5):1677-1686. https://doi.org/10.1093/ije/dyac115.   
+Madaniyazi L and Tobias A and Kim Y, Chung Y, Armstrong B, Hashizume  M. (2022). "Assessing seasonality and the role of its potential drivers in environmental epidemiology: a tutorial". *International Journal of Epidemiology* 51.5, pp. 1677-1686. doi: 10.1093/ije/dyac115.  
 
-Garbazza C, Benedetti F. 2018. 'Genetic Factors Affecting Seasonality, Mood, and the Circadian Clock'. *Frontiers in Endocrinology* 9 (August): 481. https://doi.org/10.3389/fendo.2018.00481.   
+Wood, S. N. (2013). "On p-values for smooth components of an extended generalized additive model". *Biometrika* 100.1, pp. 221–228. doi: 10.1093/biomet/ass048.
 
-Stewart S, Keates AK, Redfern A,McMurray JJV. 2017. 'Seasonal Variations in Cardiovascular Disease'. *Nature Reviews Cardiology* 14 (11): 654–64. https://doi.org/10.1038/nrcardio.2017.76.
 
 
 
