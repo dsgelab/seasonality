@@ -15,10 +15,9 @@ In order to get a better understanding of how useful the seasonality phenotypes 
 
 ## Data generating process
 Let $T$ be a random variable representing the time of year (in months) of disease onset for a particular individual, $T\in [0,12)$. Further let $g\in \{0,1,2\}$ be the genotype of a particular genetic variant. A simple periodic density function is proposed with the parametric form
-\begin{equation}
+$$
     f(t) =  \frac{1}{P} + \frac{1}{P}(\beta_b+\beta_{g}g) \sin\left(\frac{2\pi}{P}t + \phi\right)
-    \label{eq:seasonal_dens}
-\end{equation}
+$$
 where $P=12$ is the period, $\beta_b$ is the baseline seasonal effect, $\beta_{g}$ is the genetic seasonal effect and $\phi$ is the phase angle of the seasonal fluctuation. Notice that if $\beta_b=0$ and $\beta_{g}=0$ then $f(t)$ is a the density of the uniform distribution, reflecting no seasonality. To validate that $f(t)$ is truly a density, it needs to be checked whether it integrates to 1 and $f(t) \geq 0$ for all $t$. The first condition can quickly be shown to hold true
 
 $$
