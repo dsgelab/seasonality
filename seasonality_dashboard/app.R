@@ -18,7 +18,6 @@ library(shinyWidgets)
 library(readxl)
 source('utils/process_underlying_seasonality_utils.R')
 source('utils/seasonality_utils.R')
-source('../R/DGP_qt_seasonality/DGP_qt_simulation_utils.R')
 
 
 js <- '.nav-tabs-custom .nav-tabs li.active {
