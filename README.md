@@ -1,2 +1,1 @@
-# seasonality
-Exploring the genetic component of seasonality in disease in Finland
+Seasonal variation has affected human societies throughout history, shaping various aspects of life including agriculture, migration patterns and culture. This influence is observed, among others, in the occurrences of diseases such as viral and bacterial infections, cardiovascular disease and mental disorders. While there are a multitude of factors influencing the timing of disease diagnoses, environmental and behavioural, the genetic role has not been explored to the best of our knowledge. This project aims to relate genetic variation to seasonal disease risk.
