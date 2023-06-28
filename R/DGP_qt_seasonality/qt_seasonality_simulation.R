@@ -11,10 +11,10 @@ get_mu_grid <- function(beta,phi,mod_type,P){
   t_seq <- seq(0,P,by=0.01)
   gt_mod <- 0:2
   gt_lab <- 0:2
-  if(mod_type=='recessive'){
+  if(mod_type=='dominant'){
     gt_lab <- gt_mod[1:2]
     gt_mod <- gt_mod[1:2]
-  }else if(mod_type=='dominant'){
+  }else if(mod_type=='recessive'){
     gt_lab <- gt_mod[c(1,3)]
     gt_mod <- gt_mod[1:2]
   }
