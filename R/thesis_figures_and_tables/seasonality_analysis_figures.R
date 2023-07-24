@@ -24,6 +24,10 @@ reorder_by_median <- function(dat,group_var,order='desc'){
   select(-group_var)
 }
 
+split_brief <- function(s){
+  ifelse(grepl(' and ',s),gsub(' and ',' and\n',s),gsub(' ','\n',s))
+}
+
 
 plot_seasonal_comp <- function(monthly_counts_FinRegistry,endpoint,endpoint_name){
   monthly_counts_endpoint <- filter(monthly_counts_FinRegistry,ENDPOINT==endpoint)
@@ -166,9 +170,12 @@ PTR_percentage_dat <- inner_join(seasonal_summary,seasonal_summary_binary_adj,by
                         group_by(brief) %>%
                         filter(n()>20) %>%
                         ungroup() %>%
+                        mutate(brief=ifelse(nchar(brief)>20,split_brief(brief),brief)) %>%
                         #filter(abs(delta_PTR)<1) %>%
                         reorder_by_median('delta_PTR',order='desc')
+
 PTR_percentage_dat %>% group_by(brief) %>% summarise(median(delta_PTR))
+
 PTR_percentage_plot <- ggplot(PTR_percentage_dat,aes(brief,y=delta_PTR)) +
                         geom_boxplot(alpha=0.5,fill="#0072B5FF") +
                         geom_hline(yintercept=0,color='red') +
@@ -176,7 +183,7 @@ PTR_percentage_plot <- ggplot(PTR_percentage_dat,aes(brief,y=delta_PTR)) +
                         xlab('') +
                         ylab('Delta PTR \\%') +
                         theme_classic() +
-                        theme(axis.text.x = element_text(angle=-35,hjust=0),
+                        theme(axis.text.x = element_text(size=8,angle=-45,hjust=0),
                               plot.margin = margin(0,3,0,0, "cm"))
 
 #season peak
@@ -194,7 +201,8 @@ season_peak_dat <- filter(seasonal_summary,smooth_pval<pval_thres) %>%
                     mutate(count=ifelse(is.na(count),0,count)) %>%
                     group_by(brief) %>%
                     mutate(pct=100*count/sum(count)) %>%
-                    ungroup()
+                    ungroup() %>%
+                    mutate(brief=ifelse(nchar(brief)>20,split_brief(brief),brief))
 filter(season_peak_dat,grepl('Infections|Pregnancy',brief))
 
 
@@ -205,7 +213,7 @@ season_peak_plot <- ggplot(season_peak_dat,aes(brief,y=count,fill=season_peak)) 
                     xlab('') +
                     ylab('Nr of endpoints') +
                     theme_classic() +
-                    theme(axis.text.x = element_text(angle=-35,hjust=0),
+                    theme(axis.text.x = element_text(size=8,angle=-45,hjust=0),
                           legend.position=c(0.8,0.8),
                           plot.margin = margin(0,3,0,0, "cm"))
 
@@ -232,10 +240,10 @@ month_peak_plot <- ggplot(month_peak_dat,aes(month_peak,y=pct)) +
                           axis.title.x = element_text(vjust = 1))
 
 
-seasonal_overview_plot <- ((avg_spline_plot + ggtitle('A'))  + (month_peak_plot + ggtitle('B'))) /
+seasonal_overview_plot <- ((  + ggtitle('A'))  + (month_peak_plot + ggtitle('B'))) /
                           ((season_peak_plot + ggtitle('C'))) /
                           ((PTR_percentage_plot + ggtitle('D')))
-save_tikz_plot(seasonal_overview_plot,width=7.5,height=7.5,filename = 'tex/seasonal_overview_plot.tex')
+save_tikz_plot(seasonal_overview_plot,width=7.2,height=7.5,filename = 'tex/seasonal_overview_plot.tex')
 
 ##### Seasonality of four endpoint with reported seasonality in the literature #####
 
@@ -251,7 +259,7 @@ seasonal_plots_disease <- seasonal_autoimmune$fit_plot + seasonal_autoimmune$sea
                           (seasonal_depression$fit_plot) + (seasonal_depression$seasonal_cmp_plot) + #theme(legend.position=c(0.6,0.8))) +
                           (seasonal_CVD$fit_plot + xlab('First diagnosis date')) + (seasonal_CVD$seasonal_cmp_plot + xlab('Month number')) +
                           plot_layout(ncol=2,nrow=4,byrow=T,widths = c(16, 4))
-save_tikz_plot(seasonal_plots_disease,width=7.5,height=7.5,filename = 'tex/seasonality_plot_diseases.tex')
+save_tikz_plot(seasonal_plots_disease,width=6.5,height=7.5,filename = 'tex/seasonality_plot_diseases.tex')
 
 ##### Summary table of the four endpoints with reported seasonality in the literature #####
 ### Seasonal summary table
@@ -283,7 +291,7 @@ seasonal_plot_heartfail <-(seasonal_heartfail$fit_plot + xlab('First diagnosis d
                           (seasonal_heartfail$seasonal_cmp_plot + xlab('Month number')) +# + theme(legend.position=c(0.8,0.8))) +
                           plot_layout(ncol=2,nrow=1,byrow=T,widths = c(16, 4))
 
-save_tikz_plot(seasonal_plot_heartfail,width=7.5,height=3,filename = 'tex/seasonality_plot_heartfail.tex')
+save_tikz_plot(seasonal_plot_heartfail,width=6.5,height=3,filename = 'tex/seasonality_plot_heartfail.tex')
 
 ####### Example of model diagnostics for CVD #####
 #Model diagnostics

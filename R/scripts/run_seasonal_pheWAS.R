@@ -45,19 +45,19 @@ pheWAS_result_table = lapply(unique(seasonal_spline$ENDPOINT),function(e){
                           f_base=paste0('gt + ',paste(adj_cov[adj_cov %in% names(full_dat)],collapse='+'))
                           f_binary=as.formula(paste0('seasonal_val_binary ~ ',f_base))
                           mod_binary=glm(f_binary,data=full_dat,family='binomial')
-                          summary_binary=summary(mod_binary)$coefficients[2,c(1,2,4)] %>% 
+                          summary_binary=summary(mod_binary)$coefficients[2,c(1,2,4)] %>%
                                          as.list() %>%
                                          as_tibble()
                           names(summary_binary)=c('est_binary','se_binary','pval_binary')
                           f_continuous=as.formula(paste0('seasonal_val_01 ~ ',f_base))
                           mod_continuous=glm(f_continuous,data=full_dat,family='gaussian')
-                          summary_continuous=summary(mod_continuous)$coefficients[2,c(1,2,4)] %>% 
+                          summary_continuous=summary(mod_continuous)$coefficients[2,c(1,2,4)] %>%
                                               as.list() %>%
                                               as_tibble()
                           names(summary_continuous)=c('est_continuous','se_continuous','pval_continuous')
                           f_qt=as.formula(paste0('seasonal_val_qt ~ ',f_base))
                           mod_qt=glm(f_qt,data=full_dat,family='gaussian')
-                          summary_qt=summary(mod_qt)$coefficients[2,c(1,2,4)] %>% 
+                          summary_qt=summary(mod_qt)$coefficients[2,c(1,2,4)] %>%
                                       as.list() %>%
                                       as_tibble()
                           names(summary_qt)=c('est_qt','se_qt','pval_qt')
@@ -67,6 +67,6 @@ pheWAS_result_table = lapply(unique(seasonal_spline$ENDPOINT),function(e){
                         }else{
                           NULL
                         }
-                      
+
                       }) %>% bind_rows()
 write.table(pheWAS_result_table,file=paste0('~/Documents/thesis/pheWAS/',chrom,'_',pos,'_',ifelse(is.null(spline_endpoint),'no',''),'match.txt'),row.names=F,quote=F,sep='\t')

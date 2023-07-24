@@ -67,10 +67,13 @@ combined_plot <- ggplot(data=plot_dat) +
                 annotate("segment", x=-Inf, xend=-Inf, y=-Inf, yend=Inf,linewidth=0.8) +
                 theme(strip.text = element_text(size = 12, margin = margin(),hjust = 0),
                       strip.background = element_blank(),
-                      axis.text.x=element_text(size=7))
+                      axis.text.x=element_text(size=7),
+                      axis.text.y=element_text(size=7),
+                      legend.text=element_text(size=7),
+                      legend.title=element_text(size=9))
                       #panel.border = element_rect(colour = "black", fill = NA))
 
-save_tikz_plot(combined_plot,width=7,height=4,filename = 'tex/genetic_seasonal_effect_theory.tex')
+save_tikz_plot(combined_plot,width=6.5,height=4,filename = 'tex/genetic_seasonal_effect_theory.tex')
 
 ###### Statistical inference of seasonality density - Demonstration ######
 # Mapping from parallelogram to plane for statistical inference of DGP model
@@ -115,7 +118,7 @@ plane_plot <- tibble(x=c(0,0,1,1),y=c(0,1,1,0),xend=c(0,1,1,0),yend=c(1,1,0,0)) 
               ylab('') +
               theme_classic()
 combined_mapping_plot <- parallelogram_plot + rectangle_plot + plane_plot
-save_tikz_plot(combined_mapping_plot,width=7,height=7/3,filename = 'tex/DGP_model_mapping.tex')
+save_tikz_plot(combined_mapping_plot,width=6.5,height=6.5/3,filename = 'tex/DGP_model_mapping.tex')
 
 ###### Simulation based approach to validate seasonality GWAS framework ######
 a <- 1;b <- 13
@@ -189,11 +192,12 @@ phenotype_plot <- ggplot(seasonal_pheno) +
   xlab('Continuous phenotype') +
   ylab('Count') +
   theme_classic() +
-  theme(legend.position=c(0.45,0.5))
+  theme(legend.position=c(0.45,0.5),
+        legend.title=element_text(size=9))
 
 
 sim_plot <- ((dens_plot + ggtitle('A')) + (KM_plot + ggtitle('B'))) / ((monthly_counts_plot + ggtitle('C')) + (GAM_seasonality_plot + ggtitle('D')) + (phenotype_plot + ggtitle('E')))
-save_tikz_plot(sim_plot,width=7,height=6,filename = 'tex/simulation_overview_plot.tex')
+save_tikz_plot(sim_plot,width=6.5,height=6,filename = 'tex/simulation_overview_plot.tex')
 
 
 ###### Power plot + diagnosis lag sensitivity ######
@@ -244,7 +248,8 @@ effect_power <- filter(effect_power_simulation,!perturbed) %>%
                 ylab('Power') +
                 ggtitle('A MAF=2\\%, $beta_b$=-0.2, n=40000') +
                 theme_classic() +
-                theme(legend.position=c(0.7,0.3))
+                theme(legend.position=c(0.7,0.3),
+                      title=element_text(size=9))
 
 #vary MAF
 MAF_power_simulation <- read_tsv('results/simulations/MAF_power_simulation.tsv')
@@ -268,7 +273,9 @@ MAF_power <- filter(MAF_power_simulation,!perturbed) %>%
             ylab('Power') +
             ggtitle('B $beta_b$=-0.4, $beta_g$=0.1, n=40000') +
             theme_classic() +
-            theme(legend.position=c(0.7,0.3))
+            theme(legend.position=c(0.66,0.3),
+                  legend.text=element_text(size=8),
+                  title=element_text(size=9))
 
 #vary sample size
 n_power_simulation <- read_tsv('results/simulations/n_power_simulation.tsv')
@@ -290,11 +297,12 @@ n_power <- filter(n_power_simulation,!perturbed) %>%
             ylab('Power') +
             ggtitle('C MAF=2\\%, $beta_b$=-0.2, $beta_g$=0.2') +
             theme_classic() +
-            theme(legend.position=c(0.7,0.3))
+            theme(legend.position=c(0.7,0.3),
+                  title=element_text(size=9))
 
 power_plot <- ((effect_power + theme(legend.position = 'none')) + (MAF_power)) /
               ((n_power + theme(legend.position = 'none')) + (pval_lag_plot + ggtitle('D') + theme(legend.position = 'none')))
-save_tikz_plot(power_plot,width=7.5,height=6,filename = 'tex/simulation_power.tex')
+save_tikz_plot(power_plot,width=6.5,height=6,filename = 'tex/simulation_power.tex')
 
 
 # baseline_effect_simulation <- read_tsv('results/simulations/baseline_effect_simulation.tsv')

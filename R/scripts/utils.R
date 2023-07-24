@@ -1,3 +1,19 @@
+library(lubridate)
+library(dplyr)
+get_month_dec <- function(date_vec,year_start,year_end){
+  dates_range <- seq(ymd(paste0(year_start,'-01-01')),ymd(paste0(year_end,'-12-31')),by='1 day')
+  n_days_dat <- tibble(year=year(dates_range),month=month(dates_range),day=day(dates_range)) %>%
+                group_by(year,month) %>%
+                summarise(num_days=max(day))
+  month_dec_dat <- tibble(EVENT_DATE=date_vec) %>%
+                   mutate(EVENT_YEAR=year(EVENT_DATE),
+                          EVENT_MONTH=month(EVENT_DATE),
+                          EVENT_DAY=day(EVENT_DATE)) %>%
+                   inner_join(n_days_dat,by=c('EVENT_YEAR'='year','EVENT_MONTH'='month')) %>%
+                   mutate(EVENT_MONTH_DEC=EVENT_MONTH + EVENT_DAY/num_days)
+  return(month_dec_dat$EVENT_MONTH_DEC)
+}
+
 get_gt_dat <- function(chrom,pos){
   gt_dat <- system(paste0("tabix -h /finngen/library-red/finngen_R10/genotype_1.0/data/finngen_R10_",
                           chrom,".vcf.gz",chrom,":",pos,"-",pos,
@@ -17,7 +33,7 @@ get_seasonal_phenotype <- function(endpoint_id,pheno_dat,seasonal_spline,spline_
   dates_dat <- tibble(year=year(dates),month=month(dates),day=day(dates)) %>%
     group_by(year,month) %>%
     summarise(num_days=max(day))
-  pheno_dat_endpoint <- as_tibble(pheno_dat[ENDPOINT==endpoint_id,]) %>%
+  pheno_dat_endpoint <- filter(pheno_dat,ENDPOINT==endpoint_id) %>%
     rename(FID=FINNGENID) %>%
     mutate(EVENT_MONTH=month(EVENT_DATE),
            EVENT_DAY=day(EVENT_DATE)) %>%

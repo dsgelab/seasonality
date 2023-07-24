@@ -113,9 +113,12 @@ sensitivity_plot <- ggplot(sensitivity_spline_dat,aes(month,seasonal_val,col=spl
                     xlab('Month number') +
                     ylab('Smooth term') +
                     theme_classic() +
-                    theme(strip.text = element_text(size = 12, margin = margin(),hjust = 0),
+                    theme(strip.text = element_text(size = 10, margin = margin(),hjust = 0),
+                          legend.title=element_text(size=10),
+                          axis.title.x=element_text(size=10),
+                          axis.title.y=element_text(size=10),
                           strip.background = element_blank())
-save_tikz_plot(sensitivity_plot,width=7,height=3,filename = 'tex/sensitivity_plot.tex')
+save_tikz_plot(sensitivity_plot,width=6.4,height=3,filename = 'tex/sensitivity_plot.tex')
 
 sensitivity_table <- read_excel('results/sensitivity_analysis.xlsx') %>%
                      mutate(OR=exp(beta)) %>%

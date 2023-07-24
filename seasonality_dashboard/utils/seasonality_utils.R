@@ -1,4 +1,4 @@
-#library(MASS)
+library(MASS,exclude = "select")
 library(dplyr)
 library(ggplot2)
 library(lubridate)
@@ -17,21 +17,20 @@ get_endpoint_mapping <- function(path,seasonal_summary){
   return(endpoint_mapping)
 }
 
-filter_monthly_counts <- function(monthly_counts,GWAS_info_dat,endpoint_mapping_path){
+filter_monthly_counts <- function(monthly_counts,endpoint_mapping_path){
   monthly_counts_filtered <- filter(monthly_counts,EVENT_YEAR>=1998 & EVENT_YEAR<=2019)
   month_year_endpoint_template <- expand_grid(ENDPOINT=unique(monthly_counts_filtered$ENDPOINT),
                                               EVENT_YEAR=seq(min(monthly_counts_filtered$EVENT_YEAR),
                                                              max(monthly_counts_filtered$EVENT_YEAR)),
                                               EVENT_MONTH=seq_len(12))
-  endpoint_mapping <- get_endpoint_mapping(path=endpoint_mapping_path,seasonal_summary=distinct(monthly_counts_filtered,ENDPOINT))
+  #endpoint_mapping <- get_endpoint_mapping(path=endpoint_mapping_path,seasonal_summary=distinct(monthly_counts_filtered,ENDPOINT))
   monthly_counts_filtered <- left_join(month_year_endpoint_template,
                                        monthly_counts_filtered,
                                        by=c('ENDPOINT','EVENT_YEAR','EVENT_MONTH')) %>%
                               mutate(COUNT=ifelse(is.na(COUNT),0L,COUNT),
                                      EVENT_DATE=ym(paste0(EVENT_YEAR,'-',EVENT_MONTH))) %>%
-                              inner_join(select(GWAS_info_dat,ENDPOINT=phenocode,num_gw_significant),by='ENDPOINT') %>%
-                              left_join(select(endpoint_mapping,ENDPOINT,prefix,brief),by='ENDPOINT') %>%
-                              filter(is.na(prefix) | !(prefix %in% c('OTHER','VWXY20'))) %>%
+                              #left_join(select(endpoint_mapping,ENDPOINT,prefix,brief),by='ENDPOINT') %>%
+                              #filter(is.na(prefix) | !(prefix %in% c('OTHER','VWXY20'))) %>%
                               arrange(ENDPOINT,EVENT_YEAR,EVENT_MONTH)
   #all endpoints have to have more than 0 diagnoses each year.
   monthly_counts_filtered  <- group_by(monthly_counts_filtered,ENDPOINT,EVENT_YEAR) %>%
@@ -68,9 +67,17 @@ get_grid <- function(type,adjustment='',by_year=0.1,by_month=0.1,seasonal_spline
   return(grid_dat)
 }
 
-run_seasonality_gam <- function(dat,a,b,adjustment='',mod_null='adj',seasonal_spline_type='cp',k_seasonal=6,seasonal_spline_avg=NULL){
+run_seasonality_gam <- function(dat,a,b,adjustment='',adj_month_length=F,mod_null='adj',seasonal_spline_type='cp',k_seasonal=6,seasonal_spline_avg=NULL){
+  dates <- seq(ymd('1998-01-01'),ymd('2019-12-31'),by='1 day')
+  dates_dat <- tibble(EVENT_YEAR=year(dates),EVENT_MONTH=month(dates),EVENT_DAY=day(dates)) %>%
+               group_by(EVENT_YEAR,EVENT_MONTH) %>%
+               summarise(nr_days=max(EVENT_DAY),.groups = 'drop')
   k_trend <- 6
-  dat$nr_days <- 30
+  if(adj_month_length){
+    dat <- inner_join(dat,dates_dat,by=c('EVENT_YEAR','EVENT_MONTH'))
+  }else{
+    dat$nr_days <- 30
+  }
   offset_null <- 'log(nr_days)'
   if(adjustment=='mean_covariate'){
     dat$avg_seasonal_val <- get_seasonal_spline_adj(seasonal_spline_avg,dat$EVENT_MONTH)
@@ -107,8 +114,8 @@ run_seasonality_gam <- function(dat,a,b,adjustment='',mod_null='adj',seasonal_sp
   return(list(seasonal=seasonal, null=null))
 }
 
-summarise_seasonality <- function(dat,a,b,adjustment='',mod_null='adj',seasonal_spline_type='cp',k_seasonal=6,seasonal_spline_avg=NULL){
-  mod_list <- run_seasonality_gam(dat=dat,a=a,b=b,adjustment=adjustment,mod_null=mod_null,seasonal_spline_type=seasonal_spline_type,
+summarise_seasonality <- function(dat,a,b,adjustment='',adj_month_length=F,mod_null='adj',seasonal_spline_type='cp',k_seasonal=6,seasonal_spline_avg=NULL){
+  mod_list <- run_seasonality_gam(dat=dat,a=a,b=b,adjustment=adjustment,adj_month_length=adj_month_length,mod_null=mod_null,seasonal_spline_type=seasonal_spline_type,
                                   k_seasonal=k_seasonal,seasonal_spline_avg=seasonal_spline_avg)
   seasonal_grid <- get_grid(type='seasonal',adjustment=adjustment,seasonal_spline_avg=seasonal_spline_avg,by_month = 0.01)
   seasonal_component_monthly <- predict(mod_list$seasonal,
@@ -140,8 +147,8 @@ summarise_seasonality <- function(dat,a,b,adjustment='',mod_null='adj',seasonal_
          dispersion=mod_list$seasonal$scale)
 }
 
-extract_seasonal_spline <- function(dat,a,b,adjustment='',seasonal_spline_type='cp',k_seasonal=6,seasonal_spline_avg=NULL){
-  mod_list <- run_seasonality_gam(dat,a=a,b=b,adjustment=adjustment,seasonal_spline_type=seasonal_spline_type,k_seasonal=k_seasonal,seasonal_spline_avg = seasonal_spline_avg)
+extract_seasonal_spline <- function(dat,a,b,adjustment='',adj_month_length=F,seasonal_spline_type='cp',k_seasonal=6,seasonal_spline_avg=NULL){
+  mod_list <- run_seasonality_gam(dat,a=a,b=b,adjustment=adjustment,adj_month_length=adj_month_length,seasonal_spline_type=seasonal_spline_type,k_seasonal=k_seasonal,seasonal_spline_avg = seasonal_spline_avg)
   months_vec <- seq(a-0.5,b-0.5,by=0.01)
   seasonal_pred <- predict(mod_list$seasonal,newdata=get_grid(type='seasonal',adjustment=adjustment,by_month = 0.01,seasonal_spline_avg=seasonal_spline_avg),type='terms')[,'s(EVENT_MONTH)']
   return(tibble(month=months_vec,seasonal_val=seasonal_pred))
@@ -195,30 +202,31 @@ compare_gam_fits <- function(mod_list,monthly_counts,endpoint,adjustment=''){
   monthly_counts$null_pred <-predict(mod_list$null)
   monthly_counts$seasonal_pred <-predict(mod_list$seasonal)
   monthly_counts <- mutate(monthly_counts,month=1:n())
-  ggplot(monthly_counts) +
-  geom_point(aes(x=EVENT_DATE,
-                 y=COUNT)) +
-  geom_line(aes(x=EVENT_DATE,
-                y=exp(seasonal_pred))) +
-    geom_line(aes(x=EVENT_DATE,
-                  y=exp(null_pred)),
-              col='red') +
-  geom_rect(data=season_dat,aes(xmin=start,
-                                xmax=end,
-                                ymin=min(monthly_counts$COUNT),
-                                ymax=max(monthly_counts$COUNT),
-                                fill=season),alpha=0.1) +
-  scale_y_continuous(expand=c(0.01,0)) +
-  scale_x_date(expand=c(0.005,0),date_breaks='2 years',date_labels='%Y') +
-  scale_fill_manual(values=c('gold3','turquoise')) +
-  xlab(paste0('First diagnosis of: ',endpoint)) +
-  ylab('Count') +
-  theme_classic() +
-  theme(legend.position='none',
-        axis.title.x=element_text(size=14),
-        axis.text.x=element_text(size=14),
-        axis.title.y=element_text(size=14),
-        axis.text.y=element_text(size=14))
+  p <- ggplot(monthly_counts) +
+        geom_point(aes(x=EVENT_DATE,
+                       y=COUNT)) +
+        geom_line(aes(x=EVENT_DATE,
+                      y=exp(seasonal_pred))) +
+          geom_line(aes(x=EVENT_DATE,
+                        y=exp(null_pred)),
+                    col='red') +
+        geom_rect(data=season_dat,aes(xmin=start,
+                                      xmax=end,
+                                      ymin=min(monthly_counts$COUNT),
+                                      ymax=max(monthly_counts$COUNT),
+                                      fill=season),alpha=0.1) +
+        scale_y_continuous(expand=c(0.01,0)) +
+        scale_x_date(expand=c(0.005,0),date_breaks='2 years',date_labels='%Y') +
+        scale_fill_manual(values=c('gold3','turquoise')) +
+        xlab(paste0('First diagnosis of: ',endpoint)) +
+        ylab('Count') +
+        theme_classic() +
+        theme(legend.position='none',
+              axis.title.x=element_text(size=14),
+              axis.text.x=element_text(size=14),
+              axis.title.y=element_text(size=14),
+              axis.text.y=element_text(size=14))
+  return(p)
 }
 
 trend_plot <- function(dat,mod_list,adjustment,seasonal_spline_avg=NULL){

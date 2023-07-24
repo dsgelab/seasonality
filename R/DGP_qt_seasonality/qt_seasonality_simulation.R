@@ -4,6 +4,18 @@ library(mgcv)
 
 
 dgp_mu <- function(beta,phi,x_g,t,P){
+  phi <- pi/2
+  A <- c(-0.5,-2)
+  r1 <- 1.5
+  r <- c(r1,1/(2-1/r1))
+  f <- ifelse(t>=phi & t < (pi/r[1] + phi),
+         A[1]*sin(r[1]*t - r[1]*phi),
+         A[2]*sin(r[2]*t + pi - pi*r[2]/r[1]-r[2]*phi))
+  plot(t,f,type='l')
+}
+
+
+dgp_mu <- function(beta,phi,x_g,t,P){
   beta['g']*x_g + (beta['a'] + beta['ag']*x_g)*sin(t*2*pi/P + phi + beta['pg']*x_g)
 }
 
